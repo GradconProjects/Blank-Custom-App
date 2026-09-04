@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Print / PDF export (see components/PrintQuoteReport.jsx) — the on-screen
+   app is hidden entirely via print:hidden classes, this report is the only
+   thing that prints. */
+@media print {
+  @page {
+    size: A4;
+    /* Wider left/right margin than top/bottom, matching Cost Planner's own
+       PDF export — the report otherwise reads edge-to-edge on the page. */
+    margin: 14mm 24mm;
+  }
+  body {
+    background: white;
+  }
+  /* Chrome/Safari drop background colors on print by default unless this is
+     set — without it the navy/light-blue header bands below would print as
+     plain white, same fix Cost Planner's own print CSS already applies. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

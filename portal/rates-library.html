@@ -1,0 +1,976 @@
+<!doctype html>
+<meta charset="UTF-8">
+<title>GRADCON Rates Library</title>
+<style>
+
+:root{
+  --navy:#0f2e4c; --navy2:#1F4E78; --navy-light:#D9EAF7; --input-bg:#DDEBF7;
+  --border:#c9d6e0; --bg:#eef2f6; --linked:#1a7a3c; --accent:#2f7fd6;
+  --flag-bg:#FFF3CD; --flag-border:#e0b93d; --total-bg:#eef4f9;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:'Segoe UI',Calibri,Arial,sans-serif;background:var(--bg);color:#1c2b36;font-size:13px;}
+header{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;}
+.header-brand{display:flex;align-items:center;gap:14px;}
+.logo-badge{background:#fff;border-radius:8px;padding:6px 12px;box-shadow:0 1px 4px rgba(0,0,0,.25);display:flex;align-items:center;}
+.logo-badge img{height:34px;display:block;}
+header h1{margin:0;font-size:17px;letter-spacing:.02em;font-weight:600;color:#dcebf6;}
+header .subtitle{font-size:11.5px;opacity:.85;max-width:540px;text-align:right;}
+#tabnav{display:flex;gap:2px;background:#0c2438;padding:0 18px;overflow-x:auto;}
+.tab-btn{background:transparent;border:none;color:#a9c6de;padding:11px 15px;cursor:pointer;font-size:12.5px;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap;}
+.tab-btn:hover{color:#fff;}
+.tab-btn.active{color:#fff;border-bottom-color:var(--accent);background:var(--navy2);}
+#main{padding:18px;max-width:1900px;margin:0 auto;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+h2{color:var(--navy2);margin:0 0 6px 0;}
+.hint{color:#5a7186;font-style:italic;margin:0 0 14px 0;font-size:12px;max-width:1100px;}
+
+/* Home dashboard */
+.hero{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 100%);color:#fff;padding:22px 26px;border-radius:10px;margin-bottom:18px;}
+.hero h1{margin:0 0 8px 0;font-size:22px;}
+.hero .hint{color:#cfe0ee;margin:0;max-width:900px;}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px;}
+.kpi-card{background:#fff;border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:8px;padding:12px 14px;box-shadow:0 1px 3px rgba(15,46,76,.06);}
+.kpi-label{font-size:11px;color:#5a7186;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;}
+.kpi-value{font-size:20px;font-weight:700;color:var(--navy);}
+.kpi-value.small{font-size:12.5px;font-weight:600;line-height:1.3;}
+.nav-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:20px;}
+.nav-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:18px;cursor:pointer;transition:transform .12s, box-shadow .12s;box-shadow:0 1px 3px rgba(15,46,76,.06);}
+.nav-card:hover{transform:translateY(-3px);box-shadow:0 6px 16px rgba(15,46,76,.15);border-color:var(--accent);}
+.nav-card.wide{grid-column:span 2;}
+.nav-icon{font-size:26px;margin-bottom:8px;}
+.nav-card h3{margin:0 0 6px 0;color:var(--navy2);font-size:14.5px;}
+.nav-card p{margin:0;font-size:12px;color:#5a7186;line-height:1.4;}
+
+/* Home portfolio */
+.portfolio-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;}
+.portfolio-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px 14px;}
+.portfolio-card h3{margin:0 0 8px 0;color:var(--navy2);font-size:13px;text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--navy-light);padding-bottom:6px;}
+.portfolio-card td{cursor:pointer;}
+.portfolio-card tr:hover td{background:#f4f9fc;}
+.row-active td{background:#f4fbf6 !important;font-weight:700;}
+
+/* Projects tab */
+.filter-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+.filter-btn{background:#fff;border:1px solid var(--border);border-radius:20px;padding:7px 16px;font-size:12px;font-weight:600;color:#3a4a58;cursor:pointer;}
+.filter-btn:hover{border-color:var(--accent);color:var(--accent);}
+.filter-btn.active{background:var(--navy2);border-color:var(--navy2);color:#fff;}
+.filter-btn.add-btn{margin-left:auto;background:var(--linked);border-color:var(--linked);color:#fff;}
+.filter-btn.add-btn:hover{opacity:.9;color:#fff;}
+.new-project-form{border:2px dashed var(--accent);}
+.save-btn{background:var(--linked);color:#fff;border:none;border-radius:5px;padding:8px 20px;font-size:12.5px;font-weight:700;cursor:pointer;margin-top:8px;}
+.save-btn:hover{opacity:.9;}
+
+.project-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:16px;}
+.project-card{background:#fff;border:2px solid var(--border);border-radius:8px;padding:14px;cursor:pointer;position:relative;}
+.project-card:hover{border-color:var(--accent);}
+.project-card.active{border-color:var(--linked);background:#f4fbf6;}
+.proj-title{font-weight:700;color:var(--navy2);font-size:13px;margin-bottom:6px;padding-right:60px;}
+.proj-meta{font-size:11.5px;color:#5a7186;margin-bottom:2px;}
+.proj-badge{position:absolute;bottom:10px;right:10px;background:var(--linked);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+.project-card{position:relative;}
+.project-card.cat-tender{border-left:4px solid #b5842a;}
+.project-card.cat-project{border-left:4px solid var(--accent);}
+.proj-cat-tag{position:absolute;top:10px;right:10px;font-size:9.5px;font-weight:800;letter-spacing:.05em;padding:2px 7px;border-radius:9px;background:var(--navy-light);color:var(--navy2);}
+.project-card.cat-tender .proj-cat-tag{background:#fbeecb;color:#8a6414;}
+.proj-delete-btn{position:absolute;top:8px;left:8px;width:20px;height:20px;line-height:18px;text-align:center;padding:0;border:1px solid var(--border);border-radius:50%;background:#fff;color:#a33;font-size:12px;font-weight:700;cursor:pointer;}
+.proj-delete-btn:hover{background:#a33;color:#fff;border-color:#a33;}
+
+table{border-collapse:collapse;width:100%;font-size:12.5px;background:#fff;}
+th,td{padding:5px 7px;border:1px solid var(--border);text-align:left;white-space:nowrap;}
+thead th{background:var(--navy2);color:#fff;position:sticky;top:0;}
+.sec-row td{background:var(--navy-light);color:var(--navy2);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+.subtotal-row td{background:var(--total-bg);font-weight:700;}
+.total-row td, .total-cell{background:var(--total-bg);font-weight:700;color:var(--navy2);}
+.num{text-align:right;font-variant-numeric:tabular-nums;}
+.note{white-space:normal;color:#5a7186;font-style:italic;max-width:220px;}
+.calc, .calc-label{color:#3a4a58;background:#f7f9fb;}
+.linked{color:var(--linked);font-weight:600;}
+.tag{font-size:10.5px;background:var(--navy-light);color:var(--navy2);padding:2px 6px;border-radius:3px;text-transform:none;letter-spacing:0;font-weight:600;margin-left:6px;}
+
+input[type=number], input[type=text]{
+  width:100%;min-width:64px;background:var(--input-bg);border:1px solid #a9c6de;border-radius:3px;
+  padding:3px 5px;font-size:12.5px;color:#1c2b36;text-align:right;
+}
+input[type=text]{text-align:left;}
+input:focus{outline:2px solid var(--navy2);outline-offset:0;}
+input:disabled{background:#f0f4f7;color:#7c8a96;}
+
+.panel-block{background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;}
+.panel-block h3{margin:0 0 8px 0;color:var(--navy2);font-size:13px;text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid var(--navy-light);padding-bottom:6px;}
+.kv-table td:first-child{color:#3a4a58;}
+.buildup-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:16px;}
+.buildup-table td:first-child{color:#3a4a58;width:60%;}
+
+@media (max-width:900px){
+  .buildup-cards{grid-template-columns:1fr;}
+  .nav-card.wide{grid-column:span 1;}
+}
+
+/* BOQ tabs */
+.row-selected{background:#f4fbf6;}
+.filter-count{margin-left:auto;font-size:12px;color:#5a7186;align-self:center;}
+.boq-toolbar{margin-bottom:14px;}
+.boq-report{background:#fff;border:1px solid var(--border);border-radius:8px;padding:20px 24px;max-width:1000px;}
+.boq-header h2{margin:0 0 12px 0;}
+.boq-logo{height:44px;display:block;margin-bottom:14px;}
+.boq-meta{margin-bottom:18px;}
+.boq-meta td:first-child{color:#5a7186;width:110px;}
+.boq-meta td{border:none;padding:2px 6px;}
+.boq-table td, .boq-table th{white-space:normal;}
+
+/* Print / PDF export */
+@media print{
+  header, #tabnav, .no-print{ display:none !important; }
+  body{ background:#fff; font-size:11px; }
+  #main{ padding:0; max-width:none; }
+  .tab-panel{ display:none !important; }
+  .tab-panel.active{ display:block !important; }
+  .boq-report{ border:none; padding:0; box-shadow:none; max-width:none; }
+  table{ box-shadow:none; }
+  thead th{ background:#1F4E78 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .sec-row td{ background:#D9EAF7 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+}
+
+/* Cost control */
+.kpi-value.neg{color:#c0392b;}
+.kpi-value.pos{color:#1e7e34;}
+.mini-add{background:var(--linked);color:#fff;border:none;border-radius:12px;padding:3px 10px;font-size:10.5px;font-weight:700;cursor:pointer;margin-left:8px;text-transform:none;letter-spacing:0;}
+.mini-add:hover{opacity:.9;}
+.mini-del{background:#f4d6d2;color:#a02c1f;border:none;border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:11px;font-weight:700;}
+.mini-del:hover{background:#e8b3ac;}
+
+/* Standard BOQ member grouping */
+.member-row td{background:var(--navy2);color:#fff;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:7px;}
+
+/* Schedule / Gantt */
+.sched-table td{vertical-align:middle;}
+.gantt-cell{min-width:180px;}
+.gantt-track{position:relative;height:22px;background:#eef2f6;border-radius:4px;overflow:hidden;min-width:160px;}
+.gantt-bar{position:absolute;top:2px;height:8px;border-radius:3px;}
+.gantt-bar.planned{background:var(--accent);top:3px;}
+.gantt-bar.actual{background:var(--linked);top:12px;}
+
+/* Flagged / quote-based inputs */
+input.flag-input{background:var(--flag-bg);border-color:var(--flag-border);}
+
+/* Summary & Charts */
+.summary-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:14px;}
+.chart-row{display:grid;grid-template-columns:1fr 1.3fr;gap:14px;margin-bottom:14px;}
+.chart-wrap{overflow-x:auto;padding:6px 0;}
+.donut-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.chart-legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:10px;font-size:11.5px;color:#3a4a58;}
+.legend-item{display:flex;align-items:center;gap:6px;}
+.legend-swatch{display:inline-block;width:11px;height:11px;border-radius:2px;}
+
+/* Resource schedule grid */
+.rs-table-wrap{overflow-x:auto;}
+.rs-table th, .rs-table td{white-space:nowrap;}
+.rs-table input{min-width:56px;}
+
+@media (max-width:1000px){
+  .summary-grid, .chart-row{grid-template-columns:1fr;}
+}
+
+/* Project Scope */
+.scope-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:10px;}
+.scope-toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:#fff;}
+.scope-toggle.on{border-color:var(--linked);background:#f4fbf6;color:#1c2b36;}
+.scope-toggle.off{border-color:var(--border);background:#f7f9fb;color:#8a97a3;text-decoration:line-through;}
+.scope-toggle.locked{cursor:default;border-color:var(--linked);background:#f4fbf6;text-decoration:none;font-weight:600;}
+.scope-toggle input{cursor:pointer;}
+
+/* Out-of-scope BOQ rows */
+.member-row-outofscope td{background:#8a97a3 !important;color:#fff;}
+tr.row-outofscope{opacity:.5;}
+tr.row-outofscope input, tr.row-outofscope select{background:#eef0f2;color:#9aa5ad;}
+
+/* Import */
+#import_file{margin-top:6px;}
+.scope-grid-compact{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));}
+.scope-grid-compact .scope-toggle{padding:6px 8px;font-size:11.5px;}
+
+
+.accordion{margin-bottom:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff;align-self:start;}
+.accordion summary{cursor:pointer;padding:12px 16px;background:var(--navy-light);color:var(--navy2);font-weight:700;font-size:14px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.accordion summary::-webkit-details-marker{display:none;}
+.accordion summary::after{content:"\25BE";font-size:12px;transition:transform .15s;flex-shrink:0;}
+.accordion[open] summary::after{transform:rotate(180deg);}
+.accordion .acc-body{padding:14px 16px;overflow-x:auto;}
+.acc-count{font-weight:400;font-size:11.5px;color:#5a7186;margin-left:8px;white-space:nowrap;}
+.lib-header{display:flex;align-items:center;gap:16px;padding:16px 22px;background:#fff;border-bottom:2px solid var(--border);}
+.lib-header img{height:44px;}
+.lib-header h1{font-size:19px;margin:0;color:var(--navy2);}
+.lib-header .sub{font-size:12px;color:#5a7186;margin-top:2px;}
+.save-zone{display:flex;align-items:center;gap:9px;margin-left:auto;flex-shrink:0;}
+.save-status{font-size:11px;color:#5a7186;white-space:nowrap;min-width:110px;text-align:right;}
+.save-status.ok{color:var(--linked);}
+.save-status.err{color:#a33;}
+#saveBtn{background:var(--linked);color:#fff;border:none;border-radius:5px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+#saveBtn:hover{opacity:.9;}
+.lib-wrap{max-width:1500px;margin:0 auto;padding:20px;}
+
+.lib-nav{display:flex;flex-wrap:wrap;gap:7px;padding:12px 14px;background:#fff;border:1px solid var(--border);border-radius:8px;margin-bottom:18px;position:sticky;top:10px;z-index:5;box-shadow:0 2px 8px rgba(15,46,76,.06);}
+.lib-nav button{background:var(--navy-light);border:1px solid var(--border);color:var(--navy2);font-size:11.5px;font-weight:700;padding:6px 13px;border-radius:20px;cursor:pointer;white-space:nowrap;}
+.lib-nav button:hover{background:var(--accent);color:#fff;border-color:var(--accent);}
+.acc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
+@media (max-width:920px){ .acc-grid{grid-template-columns:1fr;} .lib-nav{position:static;} }
+</style>
+<div class="lib-header">
+  <img src="data:image/png;base64,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" alt="Gradcon">
+  <div>
+    <h1>GRADCON Rates Library</h1>
+    <div class="sub">The single source of established rates for Cost Planner, Quotes and Estimates — no escalation. Real supplier rates where available (AKZ Reinforcing, Holcim), tagged with their source.</div>
+  </div>
+  <div class="save-zone">
+    <span id="saveStatus" class="save-status">All changes saved automatically</span>
+    <button id="saveBtn" type="button">💾 Save</button>
+  </div>
+</div>
+<div class="lib-wrap" id="app"></div>
+<script>
+const GLOBAL = {
+  labourSteelFixer: 68, labourConcreter: 65, labourFormworker: 70, labourGeneral: 58,
+  concretePumpHr: 260, concretePourRateM3PerHr: 12,
+  // Reinforcement wastage standardised at 5% across mesh, bar and processed
+  wasteSteelMesh: 0.05, wasteSteelBar: 0.05, wasteSteelProcessed: 0.05,
+  // Takeoff allowances READ LIVE by the Estimates app on every recompute —
+  // whole percents. Edit them here anytime and every element re-prices.
+  reoWastePct: 5, barLapPct: 8, meshLapPct: 5, formworkWastePct: 5,
+  wasteConcrete: 0.03, wasteFormwork: 0.10, wasteGeneral: 0.05,
+  overheadsPct: 0.12, marginPct: 0.15, subbieMarginPct: 0.12,
+  // Escalation defaults to 0% — Gradcon's own established rates (below,
+  // sourced from the Quotes/Estimates catalog) lead instead of an escalated
+  // BCI/Rawlinsons benchmark. Still fully editable here if a forward
+  // escalation is ever wanted again for a specific tender.
+  escalation2025Pct: 0, escalation2026Pct: 0,
+  // Holcim's Production & Transport Surcharge is reviewed FORTNIGHTLY (real
+  // supplier notice: Holcim_RMX_Fortnightly_AU_Surcharge_Update) — $2.59/m³ is
+  // the most recent confirmed rate as of this build. This is deliberately its
+  // own editable field, not baked into the concrete base rates, since it goes
+  // stale every two weeks and needs updating here on its own — check Holcim's
+  // fortnightly notice and update this number, not the grade rates above.
+  concreteSurchargePerM3: 9.17,
+  // AKZ Reinforcing's delivered-to-site fee for reinforcing steel supply —
+  // applied per tonne on top of every established reinforcement rate below
+  // (Trench Mesh, Square Mesh, Stock Bar, Processed Bar), proportional to
+  // each product's own weight, not baked into the per-product rates
+  // themselves so it can be updated in one place.
+  reinforcementDeliveryPerTonne: 300,
+};
+
+const STEEL_BUILDUPS = {
+  Mesh: { label:"Mesh — fallback only (Trench Mesh sizes with no established match)", baseRateBCI:1550 /* blended from F52-F118 $/t equivalent */,
+          delivery:45, consumables:35, fixingLabourHrsPerT:5.5, waste:GLOBAL.wasteSteelMesh,
+          source:"BCI Melb: F118 $40/m2, F92 $23/m2, F81 $32/m2, F72 $15/m2, F62 $13/m2, F52 $11/m2 (June 2025) — fallback only, see note above" },
+  Bar:  { label:"Reinforcing Bar — fallback only (every Stock Bar size has an established rate)", baseRateBCI:3530,
+          delivery:0, consumables:0, fixingLabourHrsPerT:0, waste:GLOBAL.wasteSteelBar,
+          source:"BCI Melb: Structural round bar $3,530/t; Deformed bar $3,530/t (installed, June 2025) — fallback only, see note above" },
+  Processed: { label:"Processed / Prefabricated Bar — fallback only (every diameter below has its own established Base Rate)", baseRateBCI:1925,
+          delivery:0, consumables:0, fixingLabourHrsPerT:0, waste:0,
+          source:"AKZ Reinforcing's real current Gradcon rate — $1925/t (Gradcon_Supply_July_010726, 1 July 2026) — at the time each product below was seeded; edit each product's own Base Rate below to change it, this card is fallback only" },
+};
+
+// Same constants Quotes' own catalog uses for these categories (src/data/catalog.js) —
+// a 6.0x2.4m mesh sheet, a 6.0m stock bar length — so the "unit rate" figures below match
+// what Quotes actually computes from the same base rate, not an independently-guessed number.
+const MESH_SHEET_AREA_M2 = 14.4;
+const STOCK_BAR_LENGTH_M = 6;
+// Square Mesh/Stock Bar established rates here are genuinely $/sheet and $/bar (match Quotes'
+// own catalog exactly) — the estimator enters m²/m though, so toUnit backs out that "what am I
+// really paying per m/m²" figure for display; toBase does the reverse so editing the unit rate
+// updates the real Base Rate that's actually costed. Processed Bar is the odd one out: its
+// established rate here is ALREADY per-metre (freshRates() pre-converts the industry-standard
+// $/tonne price by each diameter's weight), so its "unit rate" column runs the other way —
+// showing the $/tonne figure a steel supplier would actually quote, alongside the $/m already
+// shown as the Base Rate. Trench mesh isn't here because its own base rate already IS $/length.
+const UNIT_RATE_INFO = {
+  "Processed Bar": { label:"$/t", toUnit:(base,w)=> base*1000/w, toBase:(unit,w)=> unit*w/1000 },
+  "Square Mesh": { label:"$/m²", toUnit:(base)=> base/MESH_SHEET_AREA_M2, toBase:(unit)=> unit*MESH_SHEET_AREA_M2 },
+  "Stock Bar": { label:"$/m", toUnit:(base)=> base/STOCK_BAR_LENGTH_M, toBase:(unit)=> unit*STOCK_BAR_LENGTH_M },
+};
+// Stock Bar's Base Rate is genuinely $/bar (costed qty × Base Rate, never off weight), but the
+// real steel price it's built from is a flat $/tonne rate (currently $1825/t, see
+// GRADCON_STOCK_BAR_RATE_PER_TONNE above) converted per diameter by weight — same idea Processed
+// Bar's own $/t "Unit rate" column already covers. Stock Bar gets this as a SECOND derived
+// column (alongside its existing $/m Unit rate) since — unlike Processed Bar, where the Base
+// Rate and this figure are the same conversion — Stock Bar needs both the per-metre AND the
+// per-tonne view to always be visible and editable.
+const STOCK_BAR_TONNE_INFO = { label:"$/t", toUnit:(base,w)=> base*1000/w, toBase:(unit,w)=> unit*w/1000 };
+
+const REINFORCEMENT_ITEMS = {
+  "Trench mesh": { buildup:"Mesh", items:[
+    {p:"3 Bar-L8TM",u:"length",w:6.8},{p:"4 Bar-L8TM",u:"length",w:9.2},
+    {p:"5 Bar-L8TM",u:"length",w:11.6},{p:"6 Bar-L8TM",u:"length",w:13.9},
+    {p:"3 Bar-L11TM",u:"length",w:13.3},{p:"4 Bar-L11TM",u:"length",w:17.7},
+    {p:"5 Bar-L11TM",u:"length",w:22.3},{p:"6 Bar-L11TM",u:"length",w:26.8},
+    {p:"3 Bar-L12TM",u:"length",w:16.3},{p:"4 Bar-L12TM",u:"length",w:21.8},
+    {p:"5 Bar-L12TM",u:"length",w:27.3},{p:"6 Bar-L12TM",u:"length",w:32.8},
+    {p:"7 bar-L12TM",u:"length",w:38.75},{p:"3 bar-L15TM",u:"length",w:28},
+    {p:"4 bar-L15TM",u:"length",w:37},{p:"3 Bar-L16TM",u:"length",w:28.9},
+    {p:"4 Bar-L16TM",u:"length",w:38.5},
+  ]},
+  "Square Mesh": { buildup:"Mesh", items:[
+    {p:"SL52",u:"sheet",w:21},{p:"SL62",u:"sheet",w:33},{p:"SL72",u:"sheet",w:41},
+    {p:"SL82",u:"sheet",w:52},{p:"SL92",u:"sheet",w:66},{p:"SL102",u:"sheet",w:80},
+    {p:"SL81",u:"sheet",w:105},{p:"RL718",u:"sheet",w:67},{p:"RL818",u:"sheet",w:79},
+    {p:"RL918",u:"sheet",w:93},{p:"RL1018",u:"sheet",w:109},{p:"RL1118",u:"sheet",w:130.53},
+    {p:"RL1218",u:"sheet",w:157},
+  ]},
+  "Stock Bar": { buildup:"Bar", items:[
+    {p:"N12 - 6.0m length",u:"each",w:5.46},{p:"N16 - 6.0m length",u:"each",w:9.6},
+    {p:"N20 - 6.0m length",u:"each",w:15.19},{p:"N24 - 6.0m length",u:"each",w:21.83},
+    {p:"N28 - 6.0m length",u:"each",w:29.71},{p:"N32 - 6.0m length",u:"each",w:38.81},
+  ]},
+  "Processed Bar": { buildup:"Processed", items:[
+    {p:"N10",u:"m",w:0.632},{p:"N12",u:"m",w:0.91},{p:"N16",u:"m",w:1.6},
+    {p:"N20",u:"m",w:2.532},{p:"N24",u:"m",w:3.639},{p:"N28",u:"m",w:4.951},
+    {p:"N32",u:"m",w:6.468},{p:"N36",u:"m",w:8.19},{p:"N40",u:"m",w:10.107},
+  ]},
+};
+
+const REINFORCING_ACCESSORIES = [
+  {p:"Delivery fee",u:"each",cost:300},{p:"Poly",u:"roll",cost:89.4},
+  {p:"Duct Tape",u:"roll",cost:4.2},{p:"Abelflex 100mm",u:"roll",cost:36},
+  {p:"Abelflex 150mm",u:"roll",cost:54},{p:"CP 25/40 Bar chairs",u:"Bag",cost:17.4},
+  {p:"CP 50/65 Bar chairs",u:"Bag",cost:18.0},{p:"CP 75/90 Bar chairs",u:"Bag",cost:22.2},
+  {p:"CP 85/100 Bar chairs",u:"Bag",cost:25.2},{p:"BCPT 30 Bar chairs",u:"bag",cost:20.4},
+  {p:"BCPT 100 Bar chairs",u:"bag",cost:48.0},{p:"Base 152",u:"bag",cost:38.4},
+  {p:"BP1.6 Tie wire",u:"roll",cost:4.8},
+];
+
+const GRADCON_TRENCH_MESH_RATES = {
+  "3 Bar-L8TM":14.39, "4 Bar-L8TM":18.58, "5 Bar-L8TM":25.87, "6 Bar-L8TM":31.05,
+  "3 Bar-L11TM":24.43, "4 Bar-L11TM":33.79, "5 Bar-L11TM":41.3, "6 Bar-L11TM":50.66,
+  "3 Bar-L12TM":30.07, "4 Bar-L12TM":41.19, "5 Bar-L12TM":50.66, "6 Bar-L12TM":61.84,
+  "3 Bar-L16TM":91.08, "4 Bar-L16TM":92.89,
+};
+
+const GRADCON_SQUARE_MESH_RATES = {
+  SL52:50.64, SL62:60.32, SL72:73.01, SL82:93.56, SL92:116.50, SL102:146.09, SL81:192.01,
+  RL718:168.71, RL818:196, RL918:230.73, RL1018:255.85, RL1118:231.12, RL1218:328.1,
+};
+
+// One flat $/tonne steel rate, converted to each bar's own $/bar price by weight — same
+// approach Processed Bar already uses below (GRADCON_PROCESSED_BAR_RATE_PER_TONNE).
+const GRADCON_STOCK_BAR_RATE_PER_TONNE = 1825;
+const GRADCON_STOCK_BAR_RATES = Object.fromEntries(
+  REINFORCEMENT_ITEMS["Stock Bar"].items.map((it) => [it.p, +(GRADCON_STOCK_BAR_RATE_PER_TONNE * it.w / 1000).toFixed(2)])
+);
+
+const GRADCON_PROCESSED_BAR_RATE_PER_TONNE = 1925;
+
+const CONCRETE_ITEMS = [
+  {p:"Concrete in footings",supply:204,note:"established (25 mpa, Holcim real rate)"},
+  {p:"Concrete in 100-150mm slabs on ground",supply:204,note:"established (25 mpa, Holcim real rate)"},
+  {p:"Concrete in 150-200mm suspended slabs",supply:213,note:"established (32 mpa, Holcim real rate)"},
+  {p:"Concrete in columns",supply:225,note:"established (40 mpa, Holcim real rate)"},
+  {p:"Concrete in beams",supply:213,note:"established (32 mpa, Holcim real rate)"},
+  {p:"Concrete in isolated beams",supply:213,note:"established (32 mpa, Holcim real rate)"},
+  {p:"Concrete in suspended stairs & landings",supply:213,note:"established (32 mpa, Holcim real rate)"},
+  {p:"Concrete in 150-200mm walls",supply:339,note:"established (40 mpa Agilia Vertical, Holcim real rate)"},
+  {p:"Extra per additional N5 grade",supply:17,note:"add-on, no labour applied — no Holcim equivalent, BCI base"},
+  {p:"Shotcrete earth stabilising 75mm",supply:85,note:"m2 rate, sprayed — no Holcim equivalent, BCI base"},
+];
+
+const CONCRETE_LABOUR = { placingHrsPerM3:0.55, finishingHrsPerM3:0.35, curingRate:6, testingRate:9 };
+
+const FORMWORK_ITEMS = [
+  {p:"To footings",u:"m2",material:95,fixHrs:0.3,stripHrs:0.1},
+  {p:"To suspended slabs incl. strutting",u:"m2",material:190,fixHrs:0.55,stripHrs:0.2},
+  {p:"To suspended stairs & landings",u:"m2",material:200,fixHrs:0.6,stripHrs:0.22},
+  {p:"To walls",u:"m2",material:250,fixHrs:0.65,stripHrs:0.22,established:true},
+  {p:"To columns",u:"m2",material:230,fixHrs:0.7,stripHrs:0.25},
+  {p:"To beams",u:"m2",material:250,fixHrs:0.68,stripHrs:0.24,established:true},
+  {p:"Extra for Class 2 off-form finish",u:"m2",material:30,fixHrs:0.05,stripHrs:0},
+  {p:"1mm Bondek to suspended slab",u:"m2",material:125,fixHrs:0.30,stripHrs:0,established:true},
+  {p:"0.75mm Bondek to suspended slab",u:"m2",material:125,fixHrs:0.28,stripHrs:0,established:true},
+];
+
+const CONCRETE_GRADE_ITEMS = [
+  {p:"25 mpa Agilia",u:"m3",cost:318},
+  {p:"32 mpa Agilia",u:"m3",cost:317},
+  {p:"40 mpa Agilia",u:"m3",cost:339},
+  {p:"40 mpa Agilia (walls)",u:"m3",cost:339},
+  {p:"15 mpa",u:"m3",cost:197},
+  {p:"20 mpa",u:"m3",cost:199},
+  {p:"25 mpa",u:"m3",cost:204},
+  {p:"32 mpa",u:"m3",cost:213},
+  {p:"40 mpa",u:"m3",cost:225},
+  {p:"50 mpa",u:"m3",cost:264.2},
+  {p:"Exposed Agg",u:"m3",cost:400,note:"Prov. Sum"},
+  {p:"Minimum cartage (load under 4 m3)",u:"m3",cost:80},
+  {p:"Environment levy",u:"m3",cost:2.8},
+  {p:"Penetron (Xypex) additive",u:"m3",cost:100},
+];
+
+const FORMWORK_LEGACY_ITEMS = [
+  {p:"Material",u:"unit",cost:400},
+  {p:"Conventional",u:"m2",cost:150,note:"<3.5m $150, >3.5m $200"},
+  {p:"Bondek",u:"m2",cost:125},
+  {p:"Edgeform",u:"m",cost:50},
+  {p:"Beam/fold sides <400mm d",u:"m",cost:100},
+  {p:"Beam/fold sides >400mm d",u:"m2",cost:250},
+  {p:"Handrail",u:"m",cost:30},
+  {p:"Walls",u:"m2",cost:250},
+  {p:"Walls Curved",u:"m2",cost:350},
+  {p:"Columns (eg 300 x 300)",u:"each",cost:1000},
+  {p:"Oregon boards",u:"m2",cost:125},
+  {p:"Crane Truck hire",u:"each",cost:1500},
+  {p:"Scaffold Hire",u:"day",cost:175},
+  {p:"Certification",u:"each",cost:400},
+];
+
+const OTHER_ACCESSORIES = [
+  {p:"Packing sand",u:"m3",cost:50},
+  {p:"Crushed Rock",u:"m3",cost:63},
+  {p:"Insulation",u:"m2",cost:25,note:"kooltherm 50mm"},
+  {p:"Delivery fee",u:"each",cost:0,note:"$544.35/pack — enter rate manually"},
+  {p:"Epoxy",u:"Unit",cost:70},
+  {p:"Marking Paint",u:"Unit",cost:4},
+  {p:"Sealers/Acid/MBT",u:"each",cost:400},
+  {p:"Curing Products",u:"Price",cost:100},
+];
+
+const OTHER_ALLOWANCES = [
+  {p:"Inspector",u:"each",cost:130},
+  {p:"Soil removal",u:"m3",cost:40},
+  {p:"Bin Hire",u:"each",cost:600},
+  {p:"Sawcutting",u:"day",cost:450},
+  {p:"Concrete test",u:"each",cost:241.5},
+  {p:"Off-site washout fee",u:"each",cost:400},
+  {p:"Truck washout fee",u:"each",cost:10.5},
+  {p:"Traffic control",u:"day",cost:1500},
+  {p:"Waste disposal / tip fees",u:"each",cost:500},
+  {p:"Surveying",u:"each",cost:1500},
+];
+
+const SUBCONTRACTOR_ITEMS = [
+  {p:"Formwork",u:"quote"},
+  {p:"Steel supply",u:"quote"},
+  {p:"Steel fix",u:"quote"},
+  {p:"Screw Piling",u:"quote"},
+  {p:"CFA Piling",u:"quote"},
+];
+
+const LABOUR_PLANT_ITEMS = [
+  {p:"Steel fix",u:"tonne",cost:650},
+  {p:"Factory labour",u:"hr",cost:150},
+  {p:"Concreter",u:"day",cost:500},
+  {p:"Excavator",u:"day",cost:900},
+  {p:"Bobcat",u:"day",cost:900},
+  {p:"Pump",u:"hr",cost:250},
+  {p:"Pump",u:"m3",cost:7},
+  {p:"Steel fixer",u:"day",cost:650},
+  {p:"Crane",u:"day",cost:1600},
+  {p:"Temporary steel props/struts (150UC23.4) — supply/hire",u:"tonne",cost:3200},
+];
+
+const PRELIMINARIES_ITEMS = [
+  {p:"Site Establishment",u:"each",cost:3500},
+  {p:"Site Supervision / Management",u:"week",cost:1800},
+  {p:"Temporary Fencing",u:"m",cost:12},
+  {p:"Site Shed / Amenities Hire",u:"week",cost:150},
+  {p:"Signage",u:"each",cost:400},
+  {p:"Insurances (Public Liability & Contract Works)",u:"each",cost:2500},
+  {p:"Temporary Power & Water Connection",u:"each",cost:1200},
+  {p:"Site Cleaning / Rubbish Removal",u:"week",cost:250},
+  {p:"WHS / Safety Management",u:"week",cost:300},
+  {p:"Survey & Setout",u:"each",cost:1500},
+  {p:"Project Management Fee",u:"each",cost:5000},
+  {p:"As-built Documentation",u:"each",cost:800},
+];
+
+const BCI_REFERENCE = [
+  ["Excavation","Strip topsoil (150mm) & stockpile","m2",8,"machine excavation"],
+  ["Excavation","Over-site excavation to reduce levels","m3",33,""],
+  ["Excavation","Trench excavation, not exceeding 2m","m3",100,""],
+  ["Excavation","Pier hole excavation, not exceeding 2m","m3",117,""],
+  ["Roofing","Concrete tiles fixed to timber battens","m2",55,""],
+  ["Roofing","Terracotta tiles fixed to timber battens","m2",82,""],
+  ["Roofing","Steel decking 0.48mm zincalume","m2",44,""],
+  ["Roofing","Insulation — fibreglass batts 50mm","m2",16,""],
+  ["Roofing","Insulation — fibreglass batts 75mm","m2",20,""],
+  ["Roofing","Sisalation foil sarking","m2",9,""],
+  ["Roofing","Eaves gutter 115x0.42 zincalume quadrant","m",42,""],
+  ["Roofing","Downpipe 80mm PVC","m",54,""],
+  ["Paving","In-situ concrete paving 100mm w/ F72 mesh","m2",106.8,"broomed finish"],
+  ["Paving","Crushed rock base course 100mm","m2",13.65,""],
+  ["Fencing","Colorbond steel fence 1500mm high","m",118,""],
+  ["Fencing","Colorbond steel fence 1800mm high","m",135,""],
+  ["Fencing","Galvanised mesh fence 1200mm high","m",121,""],
+  ["Finishes","2 coats acrylic paint on plaster","m2",16,""],
+  ["Finishes","Cement paint (Boncote) on plaster","m2",16,""],
+  ["Finishes","Machine sand & 2 coats clear timber floor","m2",27,""],
+  ["Openings","Aluminium framed glazed door 2100mm high","m",505,""],
+  ["Openings","Aluminium framed glazed door 2700mm high","m",605,""],
+];
+
+const RATE_ITEMS = [
+  {p:"Hobbs",u:"m",qtyC:0.06,qtyS:4,qtyF:0.3,extraHrs:0.25},
+  {p:"Plinths",u:"m2",qtyC:0.25,qtyS:18,qtyF:0.8,extraHrs:0.6},
+  {p:"0-50mm set downs",u:"m",qtyC:0.02,qtyS:2,qtyF:0.15,extraHrs:0.15},
+  {p:"51-100mm set downs",u:"m",qtyC:0.05,qtyS:3,qtyF:0.25,extraHrs:0.25},
+  {p:"101mm-150mm setdown",u:"m",qtyC:0.09,qtyS:4,qtyF:0.35,extraHrs:0.35},
+  {p:"Steps",u:"m",qtyC:0.18,qtyS:8,qtyF:0.6,extraHrs:0.9},
+  {p:"Screeds",u:"m2",qtyC:0.05,qtyS:0,qtyF:0,extraHrs:0.45},
+  {p:"Screeds (decorative)",u:"m2",qtyC:0.05,qtyS:0,qtyF:0,extraHrs:0.60,note:"PS $370/m3 decorative mix — adjust concrete rate manually if used"},
+  {p:"Insitu Walls",u:"m2",qtyC:0.20,qtyS:22,qtyF:2.0,extraHrs:0.3},
+  {p:"Stair (floor-floor)",u:"l/m risers",qtyC:0.35,qtyS:28,qtyF:1.4,extraHrs:1.8},
+  {p:"Shotcrete",u:"m2",qtyC:0.10,qtyS:6,qtyF:0,extraHrs:0.5,note:"sprayed — no formwork"},
+];
+
+// ---- New reference data not previously in Cost Planner: PT (post-tensioned)
+// reinforcement/tendon density factors — kg per m3 (mild reinforcement) and kg per m2
+// (PT tendons) for common PT slab/beam types, from Grady's own reference notes.
+// Reference-only figures (an estimating rule of thumb), not wired into a live BOQ
+// formula — shown here so they're recorded centrally and visible everywhere.
+const PT_FACTORS = [
+  {p:"300/250/225 PT Slab", reoKgM3:65, ptKgM2:7},
+  {p:"600 thk PT Beam", reoKgM3:100, ptKgM2:12},
+];
+
+const STORAGE_KEY = "gradcon-rates-library";
+const RATES_VERSION = 1;
+
+function freshRates(){
+  const s = {
+    global: {...GLOBAL},
+    steel: JSON.parse(JSON.stringify(STEEL_BUILDUPS)),
+    reinfAcc: {}, concrete: {}, concreteLabour: {...CONCRETE_LABOUR}, formwork: {},
+    rateItems: {}, bciRef: {}, concreteGrade: {}, formworkLegacy: {}, otherAcc: {}, otherAllow: {}, labourPlant: {}, prelim: {},
+    reinforcementEstablished: {
+      trenchMesh: {...GRADCON_TRENCH_MESH_RATES},
+      squareMesh: {...GRADCON_SQUARE_MESH_RATES},
+      stockBar: {...GRADCON_STOCK_BAR_RATES},
+      processedBar: Object.fromEntries(REINFORCEMENT_ITEMS["Processed Bar"].items.map((it) => [it.p, +(GRADCON_PROCESSED_BAR_RATE_PER_TONNE * it.w / 1000).toFixed(4)])),
+    },
+    ptFactors: {},
+  };
+  REINFORCING_ACCESSORIES.forEach(it=> s.reinfAcc[it.p] = {cost:it.cost, waste:GLOBAL.wasteGeneral});
+  CONCRETE_ITEMS.forEach(it=> s.concrete[it.p] = {supply:it.supply});
+  FORMWORK_ITEMS.forEach(it=> s.formwork[it.p] = {material:it.material, fixHrs:it.fixHrs, stripHrs:it.stripHrs});
+  RATE_ITEMS.forEach(it=> s.rateItems[it.p] = {qtyC:it.qtyC, qtyS:it.qtyS, qtyF:it.qtyF, extraHrs:it.extraHrs});
+  BCI_REFERENCE.forEach((row,i)=> s.bciRef[i] = {rate: row[3]});
+  CONCRETE_GRADE_ITEMS.forEach(it=> s.concreteGrade[it.p] = {cost:it.cost});
+  FORMWORK_LEGACY_ITEMS.forEach(it=> s.formworkLegacy[it.p] = {cost:it.cost});
+  OTHER_ACCESSORIES.forEach(it=> s.otherAcc[it.p] = {cost:it.cost});
+  OTHER_ALLOWANCES.forEach(it=> s.otherAllow[it.p] = {cost:it.cost});
+  LABOUR_PLANT_ITEMS.forEach((it,idx)=> s.labourPlant[idx] = {cost:it.cost});
+  PRELIMINARIES_ITEMS.forEach(it=> s.prelim[it.p] = {cost:it.cost});
+  PT_FACTORS.forEach(it=> s.ptFactors[it.p] = {reoKgM3:it.reoKgM3, ptKgM2:it.ptKgM2});
+  return s;
+}
+
+// Backfill any category/product this file's defaults know about that the saved
+// state doesn't yet have (e.g. after adding a new product), WITHOUT ever
+// overwriting a value Grady already edited. Unlike Cost Planner's own rates
+// migration, this app never wholesale-reseeds on a version bump — this app IS
+// the rates, so a bump here only ever adds, never overwrites.
+function backfill(saved, fresh){
+  Object.keys(fresh).forEach(cat=>{
+    if(saved[cat]===undefined){ saved[cat]=fresh[cat]; return; }
+    if(typeof fresh[cat]!=="object" || fresh[cat]===null || Array.isArray(fresh[cat])) return;
+    Object.keys(fresh[cat]).forEach(key=>{
+      if(saved[cat][key]===undefined) saved[cat][key]=fresh[cat][key];
+    });
+  });
+  return saved;
+}
+
+/* ============================= CROSS-DEVICE SYNC (Supabase) =============================
+ * Every browser/device reads and writes the same row in Supabase's estimator_kv table
+ * (see supabase/migrations/0001_estimator_kv.sql) — the same table the Quotes app
+ * (src/lib/storage.js) uses, so this file and Quotes share one sync fabric. The
+ * anon/publishable key below is meant to be public — gated by row-level security, not
+ * secrecy (see CLAUDE.md "Known limitations") — and already ships inside the Quotes
+ * bundle the same way. localStorage stays the instant local cache/fallback; Supabase
+ * sync layers on top and never replaces it, so this still works fully offline or if
+ * Supabase is ever unreachable — the "Save failed" path is unaffected either way. */
+const SUPABASE_URL = "https://xbmyhvrcuyapoarmchpv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Kr4dTFXhZsifAA28HmMAVQ_EDSR2DL0";
+async function kvFetch(key){
+  try{
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/estimator_kv?key=eq.${encodeURIComponent(key)}&select=value,updated_at`, {
+      headers:{ apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      signal: AbortSignal.timeout(8000), // fail fast on a dead/slow connection rather than hang
+    });
+    if(!res.ok) return null;
+    const rows = await res.json();
+    return rows[0] || null;
+  }catch(e){ return null; }
+}
+async function kvPush(key, value){
+  try{
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/estimator_kv`, {
+      method:"POST",
+      headers:{
+        apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type":"application/json", Prefer:"resolution=merge-duplicates,return=representation"
+      },
+      body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if(!res.ok) return null;
+    const rows = await res.json();
+    return rows[0] || null;
+  }catch(e){ return null; }
+}
+
+function loadRates(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(e){ return null; }
+}
+let state = backfill(loadRates() || {}, freshRates());
+if(!state.ratesVersion) state.ratesVersion = RATES_VERSION;
+// Reinforcement wastage is standardised at 5% — coerce any stored steel
+// entry still carrying an old default (8% bar / 3% processed) once on load,
+// so saved rate blobs can't keep the retired figures alive. Runs on every
+// load but only rewrites entries that differ.
+(function(){
+  try{
+    Object.keys(state.steel||{}).forEach(function(k){
+      if(state.steel[k] && typeof state.steel[k].waste==="number" && (state.steel[k].waste===0.08 || state.steel[k].waste===0.03)) state.steel[k].waste=0.05;
+    });
+    // Holcim production & transport surcharge is now $9.17/m³ — lift any
+    // stored blob still on the retired $2.59 seed (a deliberately edited
+    // figure other than 2.59 is left alone).
+    if(state.global && state.global.concreteSurchargePerM3===2.59) state.global.concreteSurchargePerM3=9.17;
+  }catch(e){}
+})();
+
+// Pulls whatever another device last saved, if it's newer than what this browser has —
+// on load, when the tab regains focus, and on a slow poll as a background safety net.
+// Never overwrites a local edit that's newer than the cloud copy. If the cloud has no
+// row at all yet (genuinely first save anywhere), seeds it from this browser's current
+// state instead of pulling — the one case a push-on-load is safe, since there's nothing
+// real to clobber.
+let syncingFromCloud = false;
+async function syncFromCloud(){
+  if(syncingFromCloud) return;
+  syncingFromCloud = true;
+  try{
+    const row = await kvFetch(STORAGE_KEY);
+    if(!row){
+      // Nothing in the cloud yet — seed it from this browser's state, and also make sure
+      // a same-browser read of localStorage (Cost Planner's applySharedRatesLibrary(), etc.)
+      // has something to find, matching this file's pre-sync behaviour of always writing
+      // gradcon-rates-library on load.
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+      const pushed = await kvPush(STORAGE_KEY, state);
+      if(pushed) try{ localStorage.setItem(STORAGE_KEY+"__syncedAt", pushed.updated_at); }catch(e){}
+      return;
+    }
+    const localSyncedAt = localStorage.getItem(STORAGE_KEY+"__syncedAt");
+    if(localSyncedAt && row.updated_at <= localSyncedAt) return;
+    state = backfill(row.value || {}, freshRates());
+    if(!state.ratesVersion) state.ratesVersion = RATES_VERSION;
+    try{ if(state.global && state.global.concreteSurchargePerM3===2.59) state.global.concreteSurchargePerM3=9.17; }catch(e){}
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY+"__syncedAt", row.updated_at);
+    }catch(e){}
+    renderApp();
+  } finally {
+    syncingFromCloud = false;
+  }
+}
+
+let saveStatusTimer = null;
+function showSaveStatus(kind){
+  const el = document.getElementById("saveStatus");
+  if(!el) return;
+  el.classList.remove("ok","err");
+  if(kind==="ok"){
+    el.textContent = "Saved " + new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+    el.classList.add("ok");
+  } else if(kind==="err"){
+    el.textContent = "Save failed — storage may be full/disabled";
+    el.classList.add("err");
+  }
+  clearTimeout(saveStatusTimer);
+  if(kind==="ok"){
+    saveStatusTimer = setTimeout(()=>{ el.textContent = "All changes saved automatically"; el.classList.remove("ok"); }, 4000);
+  }
+}
+function saveRates(){
+  try{
+    state.ratesVersion = RATES_VERSION;
+    state.updatedAt = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    showSaveStatus("ok");
+  }catch(e){ showSaveStatus("err"); }
+  kvPush(STORAGE_KEY, state).then(row=>{
+    if(!row) return;
+    try{ localStorage.setItem(STORAGE_KEY+"__syncedAt", row.updated_at); }catch(e){}
+  });
+}
+
+function fmt$(v){ if(v==null||isNaN(v)) v=0; return "$"+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+// ---- Generic editable table builder: one row per {p, u, ...} item, one
+// editable numeric input per field in `fields`. Every category in this app is
+// rendered through this one function so the markup/wiring never drifts between
+// sections. ----
+function editableTable(items, stateMap, keyOf, fields, opts){
+  opts = opts||{};
+  let h = `<table class="item-table"><thead><tr><th>${opts.itemLabel||"Item"}</th>${opts.showUnit!==false?"<th>Unit</th>":""}${fields.map(f=>`<th>${f.label}</th>`).join("")}</tr></thead><tbody>`;
+  items.forEach((it,idx)=>{
+    const key = keyOf(it, idx);
+    const row = stateMap[key];
+    h += `<tr><td>${it.p}</td>${opts.showUnit!==false?`<td>${it.u||""}</td>`:""}`;
+    fields.forEach(f=>{
+      h += `<td><input type="number" step="any" class="lib-input" data-map="${opts.mapName}" data-key="${key}" data-field="${f.field}" value="${row[f.field]}"></td>`;
+    });
+    h += `</tr>`;
+  });
+  h += `</tbody></table>`;
+  return h;
+}
+
+function section(id, navLabel, title, count, bodyHtml, openByDefault){
+  navMeta.push({id, navLabel});
+  return `<details class="accordion" id="${id}" ${openByDefault?"open":""}><summary>${title} <span class="acc-count">${count} item${count===1?"":"s"}</span></summary><div class="acc-body">${bodyHtml}</div></details>`;
+}
+
+let navMeta = [];
+function renderApp(){
+  let h = "";
+  navMeta = [];
+
+  // Concrete
+  h += section("sec-concrete", "Concrete", "Concrete — established grade rates (Holcim, real current quote)",
+    CONCRETE_GRADE_ITEMS.length,
+    `<p class="hint">$/m³, ex GST. Sourced from Holcim's actual Gradcon supply quote — no escalation baked in.</p>` +
+    editableTable(CONCRETE_GRADE_ITEMS, state.concreteGrade, it=>it.p, [{field:"cost",label:"Rate ($/m3)"}], {mapName:"concreteGrade", showUnit:false}) +
+    `<div class="panel-block" style="margin-top:10px;"><h3>Production &amp; Transport Surcharge</h3>
+     <p class="hint">Holcim reviews this FORTNIGHTLY. Check their notice and update this number here — it applies on top of every concrete rate above.</p>
+     <table class="kv-table"><tbody><tr><td>Surcharge ($/m3)</td><td><input type="number" step="any" id="surcharge" value="${state.global.concreteSurchargePerM3}"></td></tr></tbody></table></div>
+     <div class="panel-block" style="margin-top:10px;"><h3>Concrete pour-type reference (used by Cost Planner's blended Substructure rate)</h3>` +
+    editableTable(CONCRETE_ITEMS, state.concrete, it=>it.p, [{field:"supply",label:"Supply ($/m3)"}], {mapName:"concrete", showUnit:false}) +
+    `</div>
+     <div class="panel-block" style="margin-top:10px;"><h3>Shared concrete labour/plant assumptions</h3>
+     <table class="kv-table"><tbody>
+       <tr><td>Placing labour (hrs/m3)</td><td><input type="number" step="any" id="cl_placing" value="${state.concreteLabour.placingHrsPerM3}"></td></tr>
+       <tr><td>Finishing labour (hrs/m3)</td><td><input type="number" step="any" id="cl_finishing" value="${state.concreteLabour.finishingHrsPerM3}"></td></tr>
+       <tr><td>Curing compound ($/m3)</td><td><input type="number" step="any" id="cl_curing" value="${state.concreteLabour.curingRate}"></td></tr>
+       <tr><td>Testing allowance ($/m3)</td><td><input type="number" step="any" id="cl_testing" value="${state.concreteLabour.testingRate}"></td></tr>
+     </tbody></table></div>`,
+    false);
+
+  // Reinforcement
+  let reoBody = `<p class="hint">$/unit established rate per product — Trench Mesh, Square Mesh and Stock Bar from AKZ Reinforcing's current Gradcon quote; Processed Bar uniform $1925/t converted to $/m by weight. Every diameter is independently editable.</p>` +
+    `<div class="panel-block"><h3>Reinforcing steel delivery fee</h3>
+     <p class="hint">AKZ Reinforcing's delivered-to-site fee, applied on top of every established rate to the left, proportional to each product's own weight.</p>
+     <table class="kv-table"><tbody><tr><td>Delivery ($/tonne)</td><td><input type="number" step="any" id="g_reodelivery" value="${state.global.reinforcementDeliveryPerTonne}"></td></tr></tbody></table></div>
+     <div class="panel-block" style="margin-top:10px;"><h3>Reinforcement &amp; formwork takeoff allowances</h3>
+     <p class="hint">Read LIVE by the Estimates takeoff on every recompute — change them here anytime and every element re-prices. Wastage applies to all reinforcement; the bar lap applies to bar laps, the sheet/trench lap to mesh sheets and trench mesh.</p>
+     <table class="kv-table"><tbody>
+      <tr><td>Reinforcement wastage (%)</td><td><input type="number" step="any" id="g_reowaste" value="${state.global.reoWastePct??5}"></td></tr>
+      <tr><td>Lap allowance — bars (%)</td><td><input type="number" step="any" id="g_barlap" value="${state.global.barLapPct??8}"></td></tr>
+      <tr><td>Lap allowance — mesh sheets &amp; trench (%)</td><td><input type="number" step="any" id="g_meshlap" value="${state.global.meshLapPct??5}"></td></tr>
+      <tr><td>Formwork wastage (%)</td><td><input type="number" step="any" id="g_formwaste" value="${state.global.formworkWastePct??5}"></td></tr>
+     </tbody></table></div>`;
+  const reoMapFor = {"Trench mesh":"trenchMesh","Square Mesh":"squareMesh","Stock Bar":"stockBar","Processed Bar":"processedBar"};
+  Object.keys(REINFORCEMENT_ITEMS).forEach(group=>{
+    const g = REINFORCEMENT_ITEMS[group];
+    const mapKey = reoMapFor[group];
+    const map = state.reinforcementEstablished[mapKey];
+    const uinfo = UNIT_RATE_INFO[group];
+    const showsTonne = group === "Stock Bar"; // see STOCK_BAR_TONNE_INFO above
+    reoBody += `<div class="panel-block"><h3>${group}</h3><table class="item-table"><thead><tr><th>Product</th><th>Unit</th><th>Weight (kg)</th><th>Base Rate ($/unit)</th>${uinfo?`<th>Unit rate (${uinfo.label})</th>`:''}${showsTonne?`<th>Steel rate (${STOCK_BAR_TONNE_INFO.label})</th>`:''}</tr></thead><tbody>`;
+    g.items.forEach(it=>{
+      const has = Object.prototype.hasOwnProperty.call(map, it.p);
+      const baseCell = has?`<input type="number" step="any" class="lib-input" data-map="reinforcementEstablished.${mapKey}" data-key="${it.p}" data-field="_" value="${map[it.p]}">`:'<span class="note">— (BCI fallback below)</span>';
+      let unitCell = '';
+      if(uinfo){
+        const unitVal = has ? uinfo.toUnit(map[it.p], it.w) : null;
+        unitCell = `<td>${has?`<input type="number" step="any" class="lib-unit-rate-input" data-map="reinforcementEstablished.${mapKey}" data-key="${it.p}" data-w="${it.w}" data-group="${group}" value="${unitVal!=null?(+unitVal.toFixed(4)):''}">`:''}</td>`;
+      }
+      let tonneCell = '';
+      if(showsTonne){
+        const tonneVal = has ? STOCK_BAR_TONNE_INFO.toUnit(map[it.p], it.w) : null;
+        tonneCell = `<td>${has?`<input type="number" step="any" class="lib-tonne-rate-input" data-map="reinforcementEstablished.${mapKey}" data-key="${it.p}" data-w="${it.w}" value="${tonneVal!=null?(+tonneVal.toFixed(2)):''}">`:''}</td>`;
+      }
+      reoBody += `<tr><td>${it.p}</td><td>${it.u}</td><td class="num">${it.w}</td><td>${baseCell}</td>${unitCell}${tonneCell}</tr>`;
+    });
+    reoBody += `</tbody></table></div>`;
+  });
+  reoBody += `<div class="panel-block"><h3>BCI fallback build-ups (only used for products with no established rate above)</h3>
+    <p class="hint">The delivery fee above applies here too — not repeated per build-up.</p>`;
+  ["Mesh","Bar","Processed"].forEach(key=>{
+    const b = state.steel[key];
+    reoBody += `<table class="kv-table" style="margin-bottom:10px;"><tbody>
+      <tr><td colspan="2"><b>${STEEL_BUILDUPS[key].label}</b></td></tr>
+      <tr><td>Base rate ($/t)</td><td><input type="number" step="any" class="lib-input" data-map="steel" data-key="${key}" data-field="baseRateBCI" value="${b.baseRateBCI}"></td></tr>
+      <tr><td>Wastage %</td><td><input type="number" step="any" class="lib-input" data-map="steel" data-key="${key}" data-field="waste" value="${(b.waste*100).toFixed(1)}" data-pct="1"></td></tr>
+      <tr><td>Consumables ($/t)</td><td><input type="number" step="any" class="lib-input" data-map="steel" data-key="${key}" data-field="consumables" value="${b.consumables}"></td></tr>
+    </tbody></table>`;
+  });
+  reoBody += `</div>`;
+  h += section("sec-reinforcement", "Reinforcement", "Reinforcement", REINFORCEMENT_ITEMS["Trench mesh"].items.length+REINFORCEMENT_ITEMS["Square Mesh"].items.length+REINFORCEMENT_ITEMS["Stock Bar"].items.length+REINFORCEMENT_ITEMS["Processed Bar"].items.length, reoBody, false);
+
+  h += section("sec-reinf-acc", "Reo Accessories", "Reinforcing Accessories (AKZ Reinforcing, real current rates)", REINFORCING_ACCESSORIES.length,
+    `<p class="hint">$/unit — bar chairs, tie wire, poly, tape.</p>` +
+    editableTable(REINFORCING_ACCESSORIES, state.reinfAcc, it=>it.p, [{field:"cost",label:"Cost ($)"},{field:"waste",label:"Wastage %"}], {mapName:"reinfAcc"}));
+
+  h += section("sec-formwork", "Formwork", "Formwork", FORMWORK_LEGACY_ITEMS.length+FORMWORK_ITEMS.length,
+    `<div class="panel-block"><h3>General</h3>` +
+    editableTable(FORMWORK_LEGACY_ITEMS, state.formworkLegacy, it=>it.p, [{field:"cost",label:"Rate ($)"}], {mapName:"formworkLegacy"}) +
+    `</div><div class="panel-block" style="margin-top:10px;"><h3>By position (fix/strip labour)</h3>` +
+    editableTable(FORMWORK_ITEMS, state.formwork, it=>it.p, [{field:"material",label:"Material ($)"},{field:"fixHrs",label:"Fix (hrs)"},{field:"stripHrs",label:"Strip (hrs)"}], {mapName:"formwork"}) +
+    `</div>`);
+
+  h += section("sec-labour", "Labour & Plant", "Labour &amp; Plant day/hour rates", LABOUR_PLANT_ITEMS.length+4,
+    `<div class="panel-block"><h3>Trade day rates</h3><table class="kv-table"><tbody>
+      <tr><td>Steel fixer ($/day)</td><td><input type="number" step="any" id="g_steelfixer" value="${state.global.labourSteelFixer}"></td></tr>
+      <tr><td>Concreter ($/day)</td><td><input type="number" step="any" id="g_concreter" value="${state.global.labourConcreter}"></td></tr>
+      <tr><td>Formworker ($/day)</td><td><input type="number" step="any" id="g_formworker" value="${state.global.labourFormworker}"></td></tr>
+      <tr><td>General labour ($/day)</td><td><input type="number" step="any" id="g_general" value="${state.global.labourGeneral}"></td></tr>
+    </tbody></table></div>
+    <div class="panel-block" style="margin-top:10px;"><h3>Plant &amp; equipment</h3>` +
+    editableTable(LABOUR_PLANT_ITEMS, state.labourPlant, (it,idx)=>idx, [{field:"cost",label:"Rate ($)"}], {mapName:"labourPlant"}) +
+    `</div>`);
+
+  h += section("sec-other-acc", "Other Accessories", "Other Accessories", OTHER_ACCESSORIES.length,
+    editableTable(OTHER_ACCESSORIES, state.otherAcc, it=>it.p, [{field:"cost",label:"Cost ($)"}], {mapName:"otherAcc"}));
+
+  h += section("sec-other-allow", "Other Allowances", "Other Allowances", OTHER_ALLOWANCES.length,
+    editableTable(OTHER_ALLOWANCES, state.otherAllow, it=>it.p, [{field:"cost",label:"Cost ($)"}], {mapName:"otherAllow"}));
+
+  h += section("sec-prelim", "Preliminaries", "Preliminaries", PRELIMINARIES_ITEMS.length,
+    editableTable(PRELIMINARIES_ITEMS, state.prelim, it=>it.p, [{field:"cost",label:"Cost ($)"}], {mapName:"prelim"}));
+
+  h += section("sec-subbies", "Subcontractors", "Subcontractor Quotes (reference — quote-based, no established rate)", SUBCONTRACTOR_ITEMS.length,
+    `<p class="hint">These are priced per job by the subcontractor at quote time — enter the actual quote directly on the BOQ line in Cost Planner, not here.</p>
+     <table class="item-table"><thead><tr><th>Item</th><th>Unit</th></tr></thead><tbody>${SUBCONTRACTOR_ITEMS.map(it=>`<tr><td>${it.p}</td><td>${it.u}</td></tr>`).join("")}</tbody></table>`);
+
+  h += section("sec-rate-items", "Rate Items", "Rate Items — composite build-up factors (Concrete/Steel/Formwork sub-quantities per unit)", RATE_ITEMS.length,
+    `<p class="hint">Concrete (m3), Steel (kg) and Formwork (m2) consumed per unit of each in-situ item, plus extra trade labour hours — these blend live with the rates above rather than being their own flat $ rate.</p>` +
+    editableTable(RATE_ITEMS, state.rateItems, it=>it.p, [{field:"qtyC",label:"Concrete (m3/unit)"},{field:"qtyS",label:"Steel (kg/unit)"},{field:"qtyF",label:"Formwork (m2/unit)"},{field:"extraHrs",label:"Extra labour (hrs)"}], {mapName:"rateItems"}));
+
+  h += section("sec-pt", "PT / Tendons", "PT (Post-Tensioned) Reinforcement &amp; Tendon Density — reference factors", PT_FACTORS.length,
+    `<p class="hint">Reference-only estimating factors for PT slabs/beams — mild reinforcement (kg per m³) and PT tendon (kg per m²). Not yet wired into a live BOQ formula; use these as a quick cross-check when estimating a PT element.</p>` +
+    editableTable(PT_FACTORS, state.ptFactors, it=>it.p, [{field:"reoKgM3",label:"Reinforcement (kg/m3)"},{field:"ptKgM2",label:"PT tendon (kg/m2)"}], {mapName:"ptFactors", showUnit:false}));
+
+  h += section("sec-overheads", "Overheads & Margin", "Overheads, Margin &amp; Waste %", 3,
+    `<table class="kv-table"><tbody>
+      <tr><td>Overheads %</td><td><input type="number" step="any" id="g_overheads" value="${(state.global.overheadsPct*100).toFixed(1)}"></td></tr>
+      <tr><td>Margin %</td><td><input type="number" step="any" id="g_margin" value="${(state.global.marginPct*100).toFixed(1)}"></td></tr>
+      <tr><td>Subcontractor margin %</td><td><input type="number" step="any" id="g_subbiemargin" value="${(state.global.subbieMarginPct*100).toFixed(1)}"></td></tr>
+    </tbody></table>`);
+
+  h += section("sec-bci", "BCI Reference", "BCI Reference Rates — Melbourne (non-structural: excavation, roofing, fencing, paving, finishes)", BCI_REFERENCE.length,
+    `<p class="hint">No Gradcon-established equivalent for these — kept as the BCI/Rawlinsons Melbourne benchmark. No escalation applied.</p>
+     <table class="item-table"><thead><tr><th>Category</th><th>Item</th><th>Unit</th><th>Rate ($)</th></tr></thead><tbody>${
+       BCI_REFERENCE.map((row,i)=>{
+         const [cat,item,unit] = row;
+         return `<tr><td>${cat}</td><td>${item}</td><td>${unit}</td><td><input type="number" step="any" class="lib-input" data-map="bciRef" data-key="${i}" data-field="rate" value="${state.bciRef[i].rate}"></td></tr>`;
+       }).join("")
+     }</tbody></table>`, false);
+
+  h += section("sec-escalation", "Escalation", "Escalation (off by default — Gradcon does not escalate rates)", 2,
+    `<p class="hint">Gradcon's rates above are already current, real supplier figures — escalation stays at 0% by design. Only touch this for a specific tender that genuinely needs a forward escalation allowance.</p>
+     <table class="kv-table"><tbody>
+       <tr><td>2025 escalation %</td><td><input type="number" step="any" id="g_esc25" value="${(state.global.escalation2025Pct*100).toFixed(1)}"></td></tr>
+       <tr><td>2026 escalation %</td><td><input type="number" step="any" id="g_esc26" value="${(state.global.escalation2026Pct*100).toFixed(1)}"></td></tr>
+     </tbody></table>`, false);
+
+  const navHtml = `<nav class="lib-nav">` + navMeta.map(s=>`<button type="button" onclick="jumpTo('${s.id}')">${s.navLabel}</button>`).join("") + `</nav>`;
+  document.getElementById("app").innerHTML = navHtml + `<div class="acc-grid">${h}</div>`;
+  wireInputs();
+}
+
+function jumpTo(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.open = true;
+  el.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function wireInputs(){
+  document.querySelectorAll(".lib-input").forEach(inp=>{
+    inp.addEventListener("input", e=>{
+      const v = parseFloat(e.target.value);
+      const mapPath = e.target.dataset.map.split(".");
+      let target = state;
+      mapPath.forEach(p=> target = target[p]);
+      const key = e.target.dataset.key, field = e.target.dataset.field;
+      const val = isNaN(v)?0:(e.target.dataset.pct?v/100:v);
+      if(field==="_") target[key] = val; else target[key][field] = val;
+      saveRates();
+    });
+  });
+  // Editing a "unit rate" column (see UNIT_RATE_INFO) writes back to the SAME Base Rate
+  // cell the .lib-input handler above edits — just via the inverse conversion, so either
+  // field stays a valid way to change the one real established rate.
+  document.querySelectorAll(".lib-unit-rate-input").forEach(inp=>{
+    inp.addEventListener("input", e=>{
+      const v = parseFloat(e.target.value);
+      if(isNaN(v)) return;
+      const mapPath = e.target.dataset.map.split(".");
+      let target = state;
+      mapPath.forEach(p=> target = target[p]);
+      const key = e.target.dataset.key;
+      const w = parseFloat(e.target.dataset.w);
+      const info = UNIT_RATE_INFO[e.target.dataset.group];
+      target[key] = info.toBase(v, w);
+      saveRates();
+    });
+  });
+  // Stock Bar's extra "$/tonne" column (see STOCK_BAR_TONNE_INFO above) — same idea as
+  // the unit-rate handler above, just always Stock Bar so no data-group lookup needed.
+  document.querySelectorAll(".lib-tonne-rate-input").forEach(inp=>{
+    inp.addEventListener("input", e=>{
+      const v = parseFloat(e.target.value);
+      if(isNaN(v)) return;
+      const mapPath = e.target.dataset.map.split(".");
+      let target = state;
+      mapPath.forEach(p=> target = target[p]);
+      const key = e.target.dataset.key;
+      const w = parseFloat(e.target.dataset.w);
+      target[key] = STOCK_BAR_TONNE_INFO.toBase(v, w);
+      saveRates();
+    });
+  });
+  const bind = (id, path, pct)=>{
+    const el = document.getElementById(id); if(!el) return;
+    el.addEventListener("input", e=>{
+      const v = parseFloat(e.target.value)||0;
+      let target = state; for(let i=0;i<path.length-1;i++) target = target[path[i]];
+      target[path[path.length-1]] = pct? v/100 : v;
+      saveRates();
+    });
+  };
+  bind("surcharge", ["global","concreteSurchargePerM3"]);
+  bind("g_reodelivery", ["global","reinforcementDeliveryPerTonne"]);
+  bind("g_reowaste", ["global","reoWastePct"]);
+  bind("g_barlap", ["global","barLapPct"]);
+  bind("g_meshlap", ["global","meshLapPct"]);
+  bind("g_formwaste", ["global","formworkWastePct"]);
+  bind("cl_placing", ["concreteLabour","placingHrsPerM3"]);
+  bind("cl_finishing", ["concreteLabour","finishingHrsPerM3"]);
+  bind("cl_curing", ["concreteLabour","curingRate"]);
+  bind("cl_testing", ["concreteLabour","testingRate"]);
+  bind("g_steelfixer", ["global","labourSteelFixer"]);
+  bind("g_concreter", ["global","labourConcreter"]);
+  bind("g_formworker", ["global","labourFormworker"]);
+  bind("g_general", ["global","labourGeneral"]);
+  bind("g_overheads", ["global","overheadsPct"], true);
+  bind("g_margin", ["global","marginPct"], true);
+  bind("g_subbiemargin", ["global","subbieMarginPct"], true);
+  bind("g_esc25", ["global","escalation2025Pct"], true);
+  bind("g_esc26", ["global","escalation2026Pct"], true);
+}
+
+renderApp(); // instant render from local/default state, no wait on the network
+document.getElementById("saveBtn").addEventListener("click", saveRates);
+syncFromCloud(); // then pull whatever another device last saved (or seed the cloud if this is the very first save anywhere)
+window.addEventListener("focus", syncFromCloud);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) syncFromCloud(); });
+setInterval(syncFromCloud, 6000); // close to live without a WebSocket subscription
+</script>
