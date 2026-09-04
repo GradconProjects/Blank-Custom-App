@@ -1,8 +1,7 @@
 /**
  * Standard boilerplate for the External Quote (see components/
- * ExternalQuoteReport.jsx) — transcribed verbatim from a real Gradcon
- * quotation letter (9 Stonecutters Road, Portsea) so the seeded text is
- * Gradcon's actual known-good standard wording, not anything invented here.
+ * ExternalQuoteReport.jsx) — the standard wording of a concrete
+ * subcontractor's client-facing quotation letter, section for section.
  * These are only the DEFAULTS a brand-new external quote is seeded with —
  * once seeded they live in quote.externalQuote and are freely editable per
  * project; editing them here never touches an existing project's own text.
@@ -66,16 +65,16 @@ export const DEFAULT_CONTRACTUAL_CONDITIONS = `1) Allowances:
 
 3) Safety:
    a. Safety Caps:
-      Safety Caps will be provided by Gradcon for all bars posing as hazardous. Caps are to be stored onsite and will be collected once their use is complete. Please advise if and when there are not required.
+      Safety Caps will be provided by BOMA ESTIMATES for all bars posing as hazardous. Caps are to be stored onsite and will be collected once their use is complete. Please advise if and when there are not required.
    b. Handrails:
-      Safety handrails associated with formwork will be supplied by Gradcon - Note these temporary handrails will be removed once Gradcon's works have been completed.
+      Safety handrails associated with formwork will be supplied by BOMA ESTIMATES - Note these temporary handrails will be removed once BOMA ESTIMATES' works have been completed.
    c. Deep Excavation:
-      Gradcon has no allowances for safety barriers or shoring associated with deep excavation.
+      BOMA ESTIMATES has no allowances for safety barriers or shoring associated with deep excavation.
    d. Other:
       Refer to OHS/Insurances section of quotation for other particulars.
 
 4) Site conditions:
-   a. Builder is to ensure Gradcon is provided with updated drawings immediately they are issued.
+   a. Builder is to ensure BOMA ESTIMATES is provided with updated drawings immediately they are issued.
    b. Builder to ensure a suitable access is available for vehicles (crushed rock road base or similar)
    c. Builder is to ensure that the site has a toilet.
    d. Builder is to ensure that the site has power available.
@@ -86,7 +85,7 @@ export const DEFAULT_CONTRACTUAL_CONDITIONS = `1) Allowances:
    i. Water Control – The builder is, to the best of their ability, to provide a site that assists with surface water control (i.e. cut off drains).
 
 5) Building & Construction Industry Security of Payment Act 2002:
-   a. At Gradcon's sole discretion, if there are any disputes or claims for unpaid Services, then the provisions of the Building and Construction Industry Security of Payment Act 2002 may apply.
+   a. At BOMA ESTIMATES' sole discretion, if there are any disputes or claims for unpaid Services, then the provisions of the Building and Construction Industry Security of Payment Act 2002 may apply.
    b. Nothing in this agreement is intended to have the effect of contracting out of any applicable provisions of the Building and Construction Industry Security of Payment Act 2002 of Victoria, except to the extent permitted by the Act where applicable.
 
 6) Quote Conditions:
@@ -102,7 +101,7 @@ export const DEFAULT_CONTRACTUAL_CONDITIONS = `1) Allowances:
    e. All employees will wear Hi-Vis clothing and hard hats when required.
    f. Material Safety Data Sheets (MSDS) provided on request.`;
 
-export const DEFAULT_SIGNATURE_NAME = "Grady Fink";
+export const DEFAULT_SIGNATURE_NAME = "";
 export const DEFAULT_SIGNATURE_TITLE = "Director";
 
 /** Fresh externalQuote object for a project that's never had one — mirrors

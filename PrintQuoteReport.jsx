@@ -70,7 +70,7 @@ function ReportContent({ quote, items, rates, categoryOrder, sectionOrder }) {
     <>
       <div className="border-b-2 border-black pb-2 mb-3">
         <div className="text-[10px] uppercase tracking-widest text-neutral-600 font-semibold">
-          Gradcon Concrete Constructions
+          BOMA ESTIMATES
         </div>
         <div className="text-xl font-bold">{quote.projectName || "Untitled project"}</div>
         <div className="text-neutral-600">Date: {quote.projectDate}</div>

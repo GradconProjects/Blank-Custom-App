@@ -1,6 +1,6 @@
--- Gradcon Estimator: shared key/value store backing useStoredState
+-- BOMA ESTIMATES: shared key/value store backing useStoredState
 -- (src/lib/storage.js). Mirrors the app's previous localStorage keys
--- (gradcon-projects, gradcon-rates, gradcon-quote-<id>) so every
+-- (boma-projects, boma-rates, boma-quote-<id>) so every
 -- browser/device reads and writes the same rows instead of separate
 -- per-browser copies. Run this against your Supabase project via the SQL
 -- editor, or `supabase db push` if you use the CLI.

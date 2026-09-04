@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Gradcon Element Takeoff Engine</title>
+<title>BOMA Element Takeoff Engine</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{
@@ -151,7 +151,7 @@ footer.note{color:var(--muted);font-size:11px;text-align:center;padding:20px;}
 <header class="app">
   <div class="title">
     <div class="logo">GC</div>
-    <div><h1>Element Takeoff Engine</h1><span>Element-driven concrete &amp; reinforcement quantity takeoff — Gradcon Concrete Constructions</span></div>
+    <div><h1>Element Takeoff Engine</h1><span>Element-driven concrete &amp; reinforcement quantity takeoff — BOMA ESTIMATES</span></div>
   </div>
   <nav class="tabs">
     <button data-page="setup" class="active">1. Project Setup</button>
@@ -250,7 +250,7 @@ footer.note{color:var(--muted);font-size:11px;text-align:center;padding:20px;}
 <section id="page-export" class="page">
   <div class="panel">
     <h2>Publish to Quote &amp; Cost Planner</h2>
-    <p class="small">Sends every element's quantities straight into the Quotes tool AND the Cost Planner dashboard as a new project in each — concrete, reinforcement and wall formwork prefill against the matching Gradcon catalog product where the match is unambiguous. Anything that isn't (an ambiguous concrete mix, a bar size or formwork system the bridge can't confidently pick, an element type there's no equivalent for) is listed in a flag banner on the new project instead of being guessed. No need to re-enter these quantities by hand in either app.</p>
+    <p class="small">Sends every element's quantities straight into the Quotes tool AND the Cost Planner dashboard as a new project in each — concrete, reinforcement and wall formwork prefill against the matching BOMA ESTIMATES catalog product where the match is unambiguous. Anything that isn't (an ambiguous concrete mix, a bar size or formwork system the bridge can't confidently pick, an element type there's no equivalent for) is listed in a flag banner on the new project instead of being guessed. No need to re-enter these quantities by hand in either app.</p>
     <div class="toolbar">
       <button class="btn primary" onclick="publishToQuote()">🚀 Publish to Quote &amp; Cost Planner</button>
     </div>
@@ -317,7 +317,7 @@ footer.note{color:var(--muted);font-size:11px;text-align:center;padding:20px;}
 </div>
 
 </main>
-<footer class="note">Gradcon Element Takeoff Engine — Australian D500N reinforcement approximation kg/m ≈ d²/162. Verify all quantities before commercial submission.</footer>
+<footer class="note">BOMA Element Takeoff Engine — Australian D500N reinforcement approximation kg/m ≈ d²/162. Verify all quantities before commercial submission.</footer>
 
 <script>
 /* ============================= STATE ============================= */
@@ -334,7 +334,7 @@ let PROJECT = {
   estimateSessionId: newEstimateSessionId(),
 };
 // Portal-wide Settings (portal-shell.html's Settings modal, stored under
-// "gradcon-preferences" — same origin as this blob:-embedded app) can
+// "boma-preferences" — same origin as this blob:-embedded app) can
 // override the fresh-project defaults above. Applied here, BEFORE
 // loadEstimateState() runs at the bottom of this file, so a restored saved
 // project still wins with its own values (Object.assign in
@@ -342,7 +342,7 @@ let PROJECT = {
 // from the user's preferred defaults instead of the hardcoded ones.
 (function(){
   try{
-    var prefs = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+    var prefs = JSON.parse(localStorage.getItem("boma-preferences")) || {};
     var map = { estCover:"cover", estGrade:"grade", estBarStock:"barStock", estConcreteWaste:"concreteWaste",
                 estReoWaste:"reoWaste", estFormworkWaste:"formworkWaste", estLapPct:"lapPct", estBulking:"bulking" };
     Object.keys(map).forEach(function(k){
@@ -544,11 +544,11 @@ function renderProjectMenu(){
 // overlay comment above). undefined = never set, so callers can treat
 // "explicitly false" differently from "untouched".
 function portalPref(key){
-  try{ var p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {}; return p[key]; }catch(e){ return undefined; }
+  try{ var p = JSON.parse(localStorage.getItem("boma-preferences")) || {}; return p[key]; }catch(e){ return undefined; }
 }
 function applyElementPrefs(data){
   try{
-    var p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+    var p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
     if(p.estLapDefaultOn === true){
       Object.keys(data).forEach(function(k){ if(/Lap$/.test(k) && data[k] === false) data[k] = true; });
     }
@@ -570,10 +570,10 @@ let UPLOADED_FILES = [];   // {id,name,size,kind:'csv'|'excel'|'pdf'|'other',add
 // Everything above (PROJECT, SELECTED_TYPES, INSTANCES) previously lived only
 // in memory — a reload, a closed tab or a crashed browser lost the entire
 // takeoff with no warning. This key holds the whole in-progress workspace
-// (distinct from "gradcon-estimate-export"/"gradcon-published-estimates",
+// (distinct from "boma-estimate-export"/"boma-published-estimates",
 // which are one-shot snapshots written only on Publish) so work survives a
 // reload even before the estimator has published anything.
-const ESTIMATE_STATE_KEY = "gradcon-estimate-state";
+const ESTIMATE_STATE_KEY = "boma-estimate-state";
 // ---- Multi-takeoff registry -------------------------------------------------
 // Each saved takeoff lives under its own storage key (localStorage AND the
 // same key in the Supabase kv table), tracked by a small index. The very
@@ -581,8 +581,8 @@ const ESTIMATE_STATE_KEY = "gradcon-estimate-state";
 // (and its cloud copy on other devices) that predates multi-project support
 // carries straight over as project #1; every later takeoff gets a suffixed
 // key. CURRENT_PROJECT_KEY is what save/load/sync actually read and write.
-const ESTIMATE_INDEX_KEY = "gradcon-estimate-projects-index";
-const ESTIMATE_ACTIVE_KEY = "gradcon-estimate-active";
+const ESTIMATE_INDEX_KEY = "boma-estimate-projects-index";
+const ESTIMATE_ACTIVE_KEY = "boma-estimate-active";
 let CURRENT_PROJECT_KEY = ESTIMATE_STATE_KEY;
 function loadProjectsIndex(){
   try{ let idx = JSON.parse(localStorage.getItem(ESTIMATE_INDEX_KEY)); return Array.isArray(idx)? idx : []; }catch(e){ return []; }
@@ -3678,7 +3678,7 @@ function exportPDF(){
          <tr style="background:#eee;"><th style="border:1px solid #999;padding:3px;text-align:left;">Material Group</th><th style="border:1px solid #999;padding:3px;text-align:left;">Material</th><th style="border:1px solid #999;padding:3px;text-align:left;">Spec</th><th style="border:1px solid #999;padding:3px;">Qty</th><th style="border:1px solid #999;padding:3px;">Unit</th><th style="border:1px solid #999;padding:3px;">Final Qty</th><th style="border:1px solid #999;padding:3px;text-align:left;">Formula</th></tr>
          ${ls.map(l=>`<tr><td style="border:1px solid #999;padding:3px;">${l.materialGroup}</td><td style="border:1px solid #999;padding:3px;">${l.material}</td><td style="border:1px solid #999;padding:3px;">${l.spec}</td><td style="border:1px solid #999;padding:3px;text-align:right;">${fmt(l.qty,2)}</td><td style="border:1px solid #999;padding:3px;">${l.unit}</td><td style="border:1px solid #999;padding:3px;text-align:right;"><b>${fmt(l.finalQty,2)}</b></td><td style="border:1px solid #999;padding:3px;font-family:monospace;">${l.formula}</td></tr>`).join('')}
        </table></div>`).join('') || "<p>No elements added yet.</p>"}
-     <p style="font-size:9px;color:#666;margin-top:20px;">Gradcon Concrete Constructions — Element Takeoff Engine. Australian D500N reinforcement mass approximation kg/m ≈ d²/162. Verify all quantities before commercial submission.</p>
+     <p style="font-size:9px;color:#666;margin-top:20px;">BOMA ESTIMATES — Element Takeoff Engine. Australian D500N reinforcement mass approximation kg/m ≈ d²/162. Verify all quantities before commercial submission.</p>
    </div>`;
   document.getElementById("printReport").innerHTML=html;
   window.print();
@@ -3719,17 +3719,17 @@ document.getElementById("loadFile").addEventListener("change",e=>{
  * together, so "publishing" is just: write the export under a known key,
  * then ask the portal shell to switch screens — the Quotes app picks the
  * export up itself on load (see src/lib/estimateImport.js in that repo).
- * Matching a generic computed quantity to a specific priced Gradcon SKU is
+ * Matching a generic computed quantity to a specific priced BOMA ESTIMATES SKU is
  * inherently ambiguous in places (which concrete mix? which formwork
  * system?) — the Quotes side prefills what it can confidently match and
  * flags everything else rather than guessing, so nothing is silently wrong
  * in the resulting quote.
  *
- * The SAME publish also appends to "gradcon-published-estimates" — a
+ * The SAME publish also appends to "boma-published-estimates" — a
  * separate, append-only (never cleared) array read by the Cost Planner
  * dashboard on load, so a project published here shows up there too without
  * re-entering anything. This is intentionally a different key to
- * "gradcon-estimate-export": Quotes deletes that one right after importing
+ * "boma-estimate-export": Quotes deletes that one right after importing
  * it (a one-shot handoff), so if Cost Planner read the same key it would
  * lose the race whenever Quotes happens to load first. */
 /* estimateSessionId (set once on PROJECT, see its declaration above) travels in every
@@ -3745,13 +3745,13 @@ function buildEstimateExportPayload(){
  * the explicit "Publish" button AND the debounced auto-publish below — same payload
  * shape either way, so a manual publish and a live auto-publish are indistinguishable
  * to the apps reading them. */
-const PUBLISHED_ESTIMATES_KEY = "gradcon-published-estimates";
+const PUBLISHED_ESTIMATES_KEY = "boma-published-estimates";
 // Stays synchronous (same contract as before this file had cloud sync at all) so a
 // localStorage failure (quota exceeded, private browsing) still throws synchronously
 // and is caught by publishToQuote()'s own try/catch, which shows the user a real
 // error instead of a silently swallowed promise rejection.
 function writeEstimateExport(payload){
-  localStorage.setItem("gradcon-estimate-export", JSON.stringify(payload));
+  localStorage.setItem("boma-estimate-export", JSON.stringify(payload));
   const record = {
     id: "est_" + Date.now() + "_" + Math.random().toString(36).slice(2,8),
     estimateSessionId: payload.project.estimateSessionId,
@@ -3799,7 +3799,7 @@ function publishToQuote(){
     return;
   }
   document.getElementById("publishStatus").innerHTML = `<div class="tip"><span class="ico">🚀</span><div>Published ${payload.lines.length} quantity line(s) across ${INSTANCES.length} element(s) to Quotes and the Cost Planner — opening Quotes… Further edits here keep syncing live to both, no need to click Publish again.</div></div>`;
-  try{ window.parent.postMessage({type:"gradcon:publish-estimate"}, "*"); }catch(err){ /* not hosted in the portal — export still sits in localStorage */ }
+  try{ window.parent.postMessage({type:"boma:publish-estimate"}, "*"); }catch(err){ /* not hosted in the portal — export still sits in localStorage */ }
   autoPublishArmed = true;
 }
 // ---- Live auto-publish: once the first manual Publish has happened, every further

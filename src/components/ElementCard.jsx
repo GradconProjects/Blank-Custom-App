@@ -17,7 +17,7 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
   const [labourOpen, setLabourOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(() => {
     try {
-      const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+      const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
       return p.quotesCardsCollapsed === false;
     } catch {
       return false;

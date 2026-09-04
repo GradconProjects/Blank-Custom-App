@@ -53,7 +53,7 @@ export default function RatesModal({ rates, setRates, onClose }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-200">
-          <h2 className="font-semibold text-neutral-800">Rates — edit the Gradcon catalog</h2>
+          <h2 className="font-semibold text-neutral-800">Rates — edit the catalog</h2>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700"><X size={20} /></button>
         </div>
         <div className="overflow-y-auto p-4 space-y-4">

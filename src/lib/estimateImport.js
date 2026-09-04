@@ -7,7 +7,7 @@
  * schemas that were never designed to line up 1:1: Estimates computes
  * generic quantities (a bar diameter + length, a concrete grade + volume,
  * an area of formwork) while the Quotes catalog prices specific named
- * Gradcon SKUs. Where the mapping is unambiguous we prefill the quantity;
+ * BOMA ESTIMATES SKUs. Where the mapping is unambiguous we prefill the quantity;
  * everywhere it isn't (multiple products could apply, or nothing in the
  * catalog corresponds at all) we DON'T guess a number into the quote — we
  * add a flag describing exactly what was found so the estimator enters it
@@ -16,7 +16,7 @@
 import { ELEMENT_TYPES, FULL_CATALOG } from "../data/catalog.js";
 import { newElementItem, rateKey } from "./costing.js";
 
-export const ESTIMATE_EXPORT_KEY = "gradcon-estimate-export";
+export const ESTIMATE_EXPORT_KEY = "boma-estimate-export";
 
 /**
  * Estimates "category" (the def.label shown on every takeoff line, e.g.

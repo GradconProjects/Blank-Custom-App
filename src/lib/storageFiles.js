@@ -1,8 +1,8 @@
 /**
  * File storage for the Project Folder feature — per-project document
  * folders plus one shared "Office" folder for company-wide files. Backed
- * by the "gradcon-files" Supabase Storage bucket (see supabase/migrations/
- * 0002_gradcon_files_bucket.sql — same "anon full access, no auth" model as
+ * by the "boma-files" Supabase Storage bucket (see supabase/migrations/
+ * 0002_boma_files_bucket.sql — same "anon full access, no auth" model as
  * public.estimator_kv, not a security boundary, see CLAUDE.md). There is no
  * localStorage fallback here, unlike lib/storage.js's useStoredState — real
  * file bytes can't live in localStorage, so file storage is simply
@@ -11,7 +11,7 @@
  */
 import { supabase, supabaseEnabled } from "./supabaseClient.js";
 
-const BUCKET = "gradcon-files";
+const BUCKET = "boma-files";
 
 export const OFFICE_FOLDER_PATH = "office";
 export const projectFolderPath = (projectId) => `projects/${projectId}`;

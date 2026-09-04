@@ -1,15 +1,25 @@
-# Gradcon Estimator
+# BOMA ESTIMATES
 
 A concrete-subcontract estimating tool. A **Projects Dashboard** lists
 every quote you've started, each with a live-computed total and a
 portfolio-wide sum across all of them. Opening a project gives you the
 usual workbook-style editor: pick a structural element (earthworks,
 piling, footings, retention, slabs, suspended structure, pool, civil
-works — folded under broad categories) from a dropdown, the full Gradcon
+works — folded under broad categories) from a dropdown, the full
 material, reinforcement, formwork and labour catalog for that element
 rolls out below it, fill in the quantities that apply, and everything
 rolls up live into a quote — element total → section subtotal → category
 subtotal → grand total → margin ladder with GST.
+
+## Trial build
+
+The deployed portal is gated: sign in with the access password, and you get
+**5 sessions of 1 hour each — 5 hours in total**. The countdown runs in the
+header, a session survives a page reload without being spent, and once the
+allowance is gone the portal locks on a `GET FULL VERSION` screen. All of
+that lives in `portal/portal-shell.html`; it is a per-browser demo limiter
+rather than real auth (see `CLAUDE.md` → "Trial gate"). `npm run dev` serves
+the ungated Quotes app for development.
 
 ## Running it
 

@@ -17,7 +17,7 @@ import ExportExcelModal from "./components/ExportExcelModal.jsx";
 import ImportFlagsBanner from "./components/ImportFlagsBanner.jsx";
 import ManageElementTypesModal from "./components/ManageElementTypesModal.jsx";
 
-export const CUSTOM_ELEMENT_TYPES_KEY = "gradcon-custom-element-types";
+export const CUSTOM_ELEMENT_TYPES_KEY = "boma-custom-element-types";
 
 const blankQuote = () => ({
   projectName: "",
@@ -31,7 +31,7 @@ const blankQuote = () => ({
 export default function App() {
   const [projects, setProjects, projectsStatus] = useStoredState(PROJECTS_INDEX_KEY, []);
   const initialRates = useMemo(() => defaultRates(), []);
-  const [rates, setRates, ratesStatus] = useStoredState("gradcon-rates", initialRates);
+  const [rates, setRates, ratesStatus] = useStoredState("boma-rates", initialRates);
   const [activeId, setActiveId] = useState(null);
   const [ratesOpen, setRatesOpen] = useState(false);
   const [elementTypesOpen, setElementTypesOpen] = useState(false);
@@ -46,7 +46,7 @@ export default function App() {
   const allSectionOrder = useMemo(() => [...new Set(allElementTypes.map((t) => t.section))], [allElementTypes]);
 
   // One-time migration for installs that had a single quote under the old
-  // fixed "gradcon-quote" key before multi-project support existed.
+  // fixed "boma-quote" key before multi-project support existed.
   useEffect(() => {
     if (projectsStatus === "loading") return;
     if (projects.length === 0) {
@@ -115,7 +115,7 @@ export default function App() {
         <div className="sticky top-0 z-30 bg-blue-950 text-white shadow-md">
           <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between">
             <div className="text-[10px] uppercase tracking-widest text-blue-300 font-semibold">
-              Gradcon Concrete Constructions
+              BOMA ESTIMATES
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -235,7 +235,7 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, onBack, elementT
             <ArrowLeft size={16} />
           </button>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-blue-300 font-semibold">Gradcon Concrete Constructions</div>
+            <div className="text-[10px] uppercase tracking-widest text-blue-300 font-semibold">BOMA ESTIMATES</div>
             <input
               value={quote.projectName}
               onChange={(e) => setQuote((q) => ({ ...q, projectName: e.target.value }))}

@@ -15,7 +15,7 @@ import { FULL_CATALOG, RESOURCE_COLS, LABOUR_TEMPLATES, GST_RATE, PRODUCTION_RAT
 // import rather than a hook.
 function readPrefs() {
   try {
-    const raw = localStorage.getItem("gradcon-preferences");
+    const raw = localStorage.getItem("boma-preferences");
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};

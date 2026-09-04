@@ -4,7 +4,7 @@ import {
 import {
   computeElementCost, computeGrandTotal, computeMarginLadder, rateKey, lookupRate, computeRowTotal, money, money2, getDefaultMargin, getMarginSteps, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy,
 } from "../lib/costing.js";
-import { GRADCON_LOGO_DATA_URI } from "../lib/logo.js";
+import { BOMA_LOGO_DATA_URI } from "../lib/logo.js";
 
 /**
  * Print/PDF export — the "window.print() + @media print stylesheet" approach
@@ -33,7 +33,7 @@ import { GRADCON_LOGO_DATA_URI } from "../lib/logo.js";
 // preference persists; the page never falls back to portrait on its own).
 function pageOrientation() {
   try {
-    const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+    const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
     return p.pageOrientation === "landscape" ? "landscape" : "portrait";
   } catch {
     return "portrait";
@@ -86,7 +86,7 @@ function ReportContent({ quote, items, rates, categoryOrder, sectionOrder }) {
   return (
     <>
       <div className="border-b-2 border-black pb-2 mb-3">
-        <img src={GRADCON_LOGO_DATA_URI} alt="Gradcon Concrete Constructions" className="h-8 mb-1.5" />
+        <img src={BOMA_LOGO_DATA_URI} alt="BOMA ESTIMATES" className="h-8 mb-1.5" />
         <div className="text-xl font-bold">{quote.projectName || "Untitled project"}</div>
         {quote.clientName && <div className="text-neutral-700">Client: {quote.clientName}</div>}
         <div className="text-neutral-600">Date: {quote.projectDate}</div>

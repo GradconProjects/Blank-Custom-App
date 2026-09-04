@@ -9,7 +9,7 @@ import { isUrgent, daysLabel, priorityRank } from "../lib/planner.js";
 const CHANNELS = ["Call", "Email", "Site meeting", "Text/WhatsApp", "Other"];
 const VARIATION_STATUSES = ["Draft", "Submitted", "Approved", "Rejected"];
 
-// Seed rows for the contractor/supplier registers, compiled from Gradcon's
+// Seed rows for the contractor/supplier registers, compiled from the
 // email history. These are the registers' *initial* value only — the first
 // time anyone edits (or deletes) a row, the whole edited list is what gets
 // persisted (localStorage/Supabase) and these defaults never reassert
@@ -45,7 +45,7 @@ const DEFAULT_SUPPLIERS = [
 // value can never render an unstyled priority.
 const defaultPriority = () => {
   try {
-    const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+    const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
     return PLANNER_PRIORITIES.includes(p.plannerDefaultPriority) ? p.plannerDefaultPriority : "Medium";
   } catch {
     return "Medium";
@@ -147,7 +147,7 @@ export default function PlannerView({ projects, onOpen }) {
       )}
       {tab === "contractors" && (
         <RegisterTab
-          storageKey="gradcon-contractors"
+          storageKey="boma-contractors"
           title="Contractor register"
           nounSingular="contractor"
           roleLabel="Trade / scope"
@@ -157,7 +157,7 @@ export default function PlannerView({ projects, onOpen }) {
       )}
       {tab === "suppliers" && (
         <RegisterTab
-          storageKey="gradcon-suppliers"
+          storageKey="boma-suppliers"
           title="Supplier register"
           nounSingular="supplier"
           roleLabel="Supplies"
@@ -479,7 +479,7 @@ function ProjectRegisterTab({ projects, quotesByKey, onOpen, patchQuote, config 
     const rows = rowsByProject.flatMap(({ name, rows }) =>
       rows.map((r) => [name, `${config.prefix}-${String(r.no).padStart(2, "0")}`, ...config.columns.map((c) => r[c.key] ?? "")])
     );
-    downloadCsv(`gradcon-${config.field}.csv`, header, rows);
+    downloadCsv(`boma-${config.field}.csv`, header, rows);
   };
 
   if (rowsByProject.length === 0) {
@@ -614,7 +614,7 @@ function RegisterTab({ storageKey, title, nounSingular, roleLabel, rolePlacehold
         <div className="flex items-center gap-3">
           <button
             onClick={() => downloadCsv(
-              `gradcon-${nounSingular}s.csv`,
+              `boma-${nounSingular}s.csv`,
               ["Company / name", roleLabel, "Contact", "Phone", "Email", "Notes"],
               entries.map((e) => [e.name, e.role, e.contact, e.phone, e.email, e.notes])
             )}

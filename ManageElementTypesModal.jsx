@@ -14,10 +14,10 @@ const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "custom";
 
 /**
- * Self-service catalog extension: lets Grady add new element types (the
+ * Self-service catalog extension: lets the estimator add new element types (the
  * Add-Element dropdown entries) from the app itself instead of asking for
  * a code change every time a new job needs one. Custom types are stored
- * separately (gradcon-custom-element-types) and merged with the built-in
+ * separately (boma-custom-element-types) and merged with the built-in
  * ELEMENT_TYPES at render time everywhere the combined list is needed
  * (see App.jsx) — the built-in catalog in data/catalog.js is never
  * modified, so this can't drift or conflict with it.

@@ -22,23 +22,23 @@ import ImportFlagsBanner from "./components/ImportFlagsBanner.jsx";
 import ManageElementTypesModal from "./components/ManageElementTypesModal.jsx";
 import ProjectGeometryPanel from "./components/ProjectGeometryPanel.jsx";
 
-const OFFICE_COMMS_KEY = "gradcon-office-communications";
-const INITIAL_VIEW_KEY = "gradcon-quotes-initial-view";
+const OFFICE_COMMS_KEY = "boma-office-communications";
+const INITIAL_VIEW_KEY = "boma-quotes-initial-view";
 
-export const CUSTOM_ELEMENT_TYPES_KEY = "gradcon-custom-element-types";
+export const CUSTOM_ELEMENT_TYPES_KEY = "boma-custom-element-types";
 // Per-browser only (never synced) — which project's editor a plain page refresh
 // should land back on, deliberately not shared across devices/users (someone
 // else refreshing shouldn't get yanked into whatever project THIS browser had
 // open).
-const ACTIVE_PROJECT_KEY = "gradcon-active-project";
+const ACTIVE_PROJECT_KEY = "boma-active-project";
 
 // New-project overheads/contingency seed from the portal Settings modal's
 // stored preferences (entered there as whole %, stored under
-// "gradcon-preferences"), falling back to the historical 8%/5%. Only NEW
+// "boma-preferences"), falling back to the historical 8%/5%. Only NEW
 // projects read this — existing quotes keep whatever they were saved with.
 const prefPct = (key, fallback) => {
   try {
-    const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+    const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
     return Number.isFinite(p[key]) ? p[key] / 100 : fallback;
   } catch {
     return fallback;
@@ -47,7 +47,7 @@ const prefPct = (key, fallback) => {
 
 const prefStatus = () => {
   try {
-    const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+    const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
     return QUOTE_STATUSES.includes(p.quotesDefaultStatus) ? p.quotesDefaultStatus : QUOTE_STATUSES[0];
   } catch {
     return QUOTE_STATUSES[0];
@@ -85,7 +85,7 @@ function takeInitialView() {
 export default function App() {
   const [projects, setProjects, projectsStatus, saveProjectsNow] = useStoredState(PROJECTS_INDEX_KEY, []);
   const initialRates = useMemo(() => defaultRates(), []);
-  const [rates, setRates, ratesStatus] = useStoredState("gradcon-rates", initialRates);
+  const [rates, setRates, ratesStatus] = useStoredState("boma-rates", initialRates);
   const [initialView] = useState(takeInitialView);
   const [activeId, setActiveId] = useState(() => {
     // A pending Planner/Project Folder jump always wins over whatever project
@@ -95,7 +95,7 @@ export default function App() {
     try {
       // Portal Settings "reopen the last project" toggle — explicitly off
       // means every load lands on the Dashboard instead.
-      const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+      const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
       if (p.quotesRememberProject === false) return null;
       return window.localStorage.getItem(ACTIVE_PROJECT_KEY) || null;
     } catch { return null; }
@@ -142,7 +142,7 @@ export default function App() {
   const allSectionOrder = useMemo(() => [...new Set(allElementTypes.map((t) => t.section))], [allElementTypes]);
 
   // One-time migration for installs that had a single quote under the old
-  // fixed "gradcon-quote" key before multi-project support existed.
+  // fixed "boma-quote" key before multi-project support existed.
   useEffect(() => {
     if (projectsStatus === "loading") return;
     if (projects.length === 0) {
@@ -266,7 +266,7 @@ export default function App() {
         <div className="sticky top-0 z-30 bg-blue-950 text-white shadow-md">
           <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between">
             <div className="text-[10px] uppercase tracking-widest text-blue-300 font-semibold">
-              Gradcon Concrete Constructions
+              BOMA ESTIMATES
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -287,7 +287,7 @@ export default function App() {
             {[
               { key: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
               { key: "planner", label: "Project Management", Icon: Radar },
-              { key: "folder", label: "Gradcon Vault", Icon: FolderOpen },
+              { key: "folder", label: "BOMA Vault", Icon: FolderOpen },
             ].map(({ key, label, Icon }) => (
               <button
                 key={key}
@@ -459,7 +459,7 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
             <ArrowLeft size={16} />
           </button>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-widest text-blue-300 font-semibold">Gradcon Concrete Constructions</div>
+            <div className="text-[10px] uppercase tracking-widest text-blue-300 font-semibold">BOMA ESTIMATES</div>
             {/* The client/owner is NOT edited here — it lives beside the
                 project name on the Projects Dashboard (Dashboard.jsx), which
                 is where projects are scanned by owner. */}
@@ -485,7 +485,7 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
               setPrintPreviewOpen(true);
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-sm font-medium transition-colors flex-none"
-            title="Gradcon's own cost/material/labour breakdown, for internal use"
+            title="Your own cost/material/labour breakdown, for internal use"
           >
             <Printer size={16} /> Internal Quote
           </button>
@@ -505,7 +505,7 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
               setTenderQuoteOpen(true);
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-sm font-medium transition-colors flex-none"
-            title="The full tender quotation document — Gradcon's real quotation layout, every line item and section editable, seeded from this quote and its estimating quantities, with a print preview. Never includes markup drawings."
+            title="The full tender quotation document — the formal quotation layout, every line item and section editable, seeded from this quote and its estimating quantities, with a print preview. Never includes markup drawings."
           >
             <Printer size={16} /> Tender Quote
           </button>

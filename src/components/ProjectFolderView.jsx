@@ -334,7 +334,7 @@ export default function ProjectFolderView({ projects, officeComms, setOfficeComm
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       <div>
         <h1 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
-          <FolderOpen size={20} className="text-orange-500" /> Gradcon Vault
+          <FolderOpen size={20} className="text-orange-500" /> BOMA Vault
         </h1>
         <p className="text-sm text-neutral-500">
           Documents and communications — one folder per project, plus a shared Office folder for company-wide files.

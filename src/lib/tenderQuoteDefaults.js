@@ -1,9 +1,8 @@
 /**
  * Standard boilerplate + seeding for the Tender Quote (see components/
- * TenderQuoteReport.jsx) — a direct copy of Gradcon's real quotation
- * document (7 Double Creek Road, Flinders — QUOTATION Rev.1), transcribed
- * verbatim so the seeded text is Gradcon's actual known-good standard
- * wording. These are only DEFAULTS: once seeded they live in
+ * TenderQuoteReport.jsx) — the full standard wording of a subcontractor
+ * concrete tender quotation, laid out section for section the way a real
+ * one reads. These are only DEFAULTS: once seeded they live in
  * quote.tenderQuote and every field is freely editable per project.
  *
  * Line items are seeded from the project's own elements — the price from
@@ -32,7 +31,7 @@ export const TENDER_SPECIFIC_EXCLUSIONS = [
   "This quotation does not include removal of spoil or loading of trucks. Builder is to ensure the removal of spoil is carried out at such time as not to impede progress. (Refer 'Additional Options' above.)",
   "Dewatering has not been allowed for in this quotation. Builder is to ensure any dewatering is carried out as soon as practically possible to allow continuation of works.",
   "Insulation to slab beam sides is not included.",
-  "Supply and placement of cast in plates is excluded from this quotation. Gradcon will assist in the placement as required.",
+  "Supply and placement of cast in plates is excluded from this quotation. BOMA ESTIMATES will assist in the placement as required.",
 ].join("\n");
 
 export const TENDER_GENERAL_EXCLUSIONS = [
@@ -87,16 +86,16 @@ export const TENDER_CONTRACTUAL_CONDITIONS = `1) Allowances:
 
 3) Safety:
    a. Safety Caps:
-      Safety Caps will be provided by Gradcon for all bars posing as hazardous. Caps are to be stored onsite and will be collected once their use is complete. Please advise if and when there are not required.
+      Safety Caps will be provided by BOMA ESTIMATES for all bars posing as hazardous. Caps are to be stored onsite and will be collected once their use is complete. Please advise if and when there are not required.
    b. Handrails:
-      Safety handrails associated with formwork will be supplied by Gradcon - Note these temporary handrails will be removed once Gradcon's works have been completed.
+      Safety handrails associated with formwork will be supplied by BOMA ESTIMATES - Note these temporary handrails will be removed once BOMA ESTIMATES' works have been completed.
    c. Deep Excavation:
-      Gradcon has no allowances for safety barriers or shoring associated with deep excavation.
+      BOMA ESTIMATES has no allowances for safety barriers or shoring associated with deep excavation.
    d. Other:
       Refer to OHS/Insurances section of quotation for other particulars.
 
 4) Site conditions:
-   a. Builder is to ensure Gradcon is provided with updated drawings immediately they are issued.
+   a. Builder is to ensure BOMA ESTIMATES is provided with updated drawings immediately they are issued.
    b. Builder to ensure a suitable access is available for vehicles (crushed rock road base or similar).
    c. Builder to ensure that the site has a toilet.
    d. Builder to ensure that the site has power available.
@@ -107,7 +106,7 @@ export const TENDER_CONTRACTUAL_CONDITIONS = `1) Allowances:
    i. Water Control - The builder is, to the best of their ability, to provide a site that assists with surface water control (i.e. cut off drains).
 
 5) Building & Construction Industry Security of Payment Act 2002:
-   a. At Gradcon's sole discretion, if there are any disputes or claims for unpaid Services, the provisions of the Building and Construction Industry Security of Payment Act 2002 may apply.
+   a. At BOMA ESTIMATES' sole discretion, if there are any disputes or claims for unpaid Services, the provisions of the Building and Construction Industry Security of Payment Act 2002 may apply.
    b. Nothing in this agreement is intended to have the effect of contracting out of any applicable provisions of the Building and Construction Industry Security of Payment Act 2002 of Victoria, except to the extent permitted by the Act where applicable.
 
 6) Quote Conditions:
@@ -202,7 +201,7 @@ export const parseTenderPrice = (s) => {
  * too. A typed projectSumOverride replaces the items sum entirely (the
  * estimator's negotiated round figure); markup is an EXTRA document-level
  * markup entered as a whole % (10 = 10%) on top of prices that already
- * carry Gradcon's margin from the sell allocation, so it defaults OFF.
+ * carry BOMA ESTIMATES' margin from the sell allocation, so it defaults OFF.
  * gstOn defaults ON (tenders normally print the GST and incl-GST lines);
  * legacy tenderQuote objects saved before these fields existed get the
  * same defaults via the `!== false` / falsy checks here. */
@@ -243,7 +242,7 @@ export function newTenderQuote() {
     specificExclusions: TENDER_SPECIFIC_EXCLUSIONS,
     generalExclusions: TENDER_GENERAL_EXCLUSIONS,
     contractualConditions: TENDER_CONTRACTUAL_CONDITIONS,
-    signatureName: "Grady Fink",
+    signatureName: "",
     signatureTitle: "Director",
   };
 }

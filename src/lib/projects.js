@@ -12,11 +12,11 @@ import { FULL_CATALOG } from "../data/catalog.js";
 
 const TABLE = "estimator_kv";
 
-export const PROJECTS_INDEX_KEY = "gradcon-projects";
-export const LEGACY_QUOTE_KEY = "gradcon-quote";
-export const PUBLISHED_QUOTES_KEY = "gradcon-published-quotes";
+export const PROJECTS_INDEX_KEY = "boma-projects";
+export const LEGACY_QUOTE_KEY = "boma-quote";
+export const PUBLISHED_QUOTES_KEY = "boma-published-quotes";
 
-export const quoteStorageKey = (id) => `gradcon-quote-${id}`;
+export const quoteStorageKey = (id) => `boma-quote-${id}`;
 
 export function newProjectEntry() {
   const id = uid();
@@ -109,11 +109,11 @@ export async function deleteQuote(storageKey) {
 
 /**
  * Mirrors this project's name/GFA — and every catalog line with a real quantity
- * entered — into "gradcon-published-quotes", the same shared bridge Estimates
+ * entered — into "boma-published-quotes", the same shared bridge Estimates
  * already publishes to (see estimates-app.html's writeEstimateExport and
  * cost-planner.html's importPublishedEstimates). Cost Planner matches each line
  * back to its own BOQ catalog by category+product name (the two apps share the
- * same real Gradcon catalog, so this matches cleanly for almost everything —
+ * same real BOMA ESTIMATES catalog, so this matches cleanly for almost everything —
  * reinforcement, concrete by grade, formwork, rate items, accessories) and drops
  * a new custom BOQ row for anything it can't match, so nothing entered in Quotes
  * is silently missing from Cost Planner's BOQ. Matched back to the same Cost
@@ -186,7 +186,7 @@ export async function publishQuoteToCostPlanner(projectId, quote) {
 
 /**
  * One-time migration for installs that had a single quote under the old
- * fixed key (`gradcon-quote`) before multi-project support existed. Turns
+ * fixed key (`boma-quote`) before multi-project support existed. Turns
  * it into project #1 in the index without moving or duplicating the data —
  * the migrated entry's storageKey stays LEGACY_QUOTE_KEY so nothing is lost
  * if migration runs more than once.

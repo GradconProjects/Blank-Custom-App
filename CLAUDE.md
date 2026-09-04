@@ -1,6 +1,6 @@
-# Gradcon Estimator — instructions for Claude Code
+# BOMA ESTIMATES — instructions for Claude Code
 
-This is Gradcon Concrete Constructions' estimating tool: pick a structural
+This is BOMA ESTIMATES, a concrete-subcontract estimating tool: pick a structural
 element from a dropdown, the entire material/reo/formwork/labour catalog
 for that element rolls out below it, fill in quantities, and everything
 rolls up live into a quote (element → section → grand total → margin
@@ -53,7 +53,7 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
 
 1. **Every product in `FULL_CATALOG` is shown on every element type, always.**
    There is no per-element filtering of which categories or products
-   apply — that was a deliberate decision (Grady wants to see the whole
+   apply — that was a deliberate decision (an estimator wants to see the whole
    catalog and decide per job what applies, not have the tool guess).
    A blank quantity costs $0 and contributes nothing — that's what makes
    showing the whole catalog on every tab harmless. **Do not add
@@ -97,7 +97,7 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
 4. **The margin ladder divides, it doesn't multiply.** Sell price =
    `subtotal / (1 - margin)`, not `subtotal * (1 + margin)`. A 30% margin
    on cost is not the same number as a 30% markup — this app implements
-   margin-on-sell-price (the construction-industry convention Gradcon
+   margin-on-sell-price (the construction-industry convention BOMA ESTIMATES
    uses), matching the original workbook. See
    `computeMarginLadder` in `costing.js`.
 
@@ -178,7 +178,7 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
   external/landscape → pool → civil) — that order is what the dropdown
   and summary display, and it's meaningful to an estimator scanning the
   list. `ELEMENT_TYPES` is deliberately comprehensive — every
-  concrete/structural element Gradcon might meet across any building or
+  concrete/structural element BOMA ESTIMATES might meet across any building or
   civil project, not curated per job (see rule 1).
 
 - **Add a new labour resource:** add to `RESOURCE_COLS` with a unique
@@ -188,7 +188,7 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
 - **Change default prices:** edit the `unitCost`/`unitWeight` values
   directly in `catalog.js`. Note this only changes what a *fresh install*
   seeds — a user who has already opened the Rates modal and edited a
-  price has that override saved in `localStorage` under `gradcon-rates`,
+  price has that override saved in `localStorage` under `boma-rates`,
   which takes precedence (see `lookupRate`). There's currently no "reset
   to catalog defaults" button; add one if that's needed (clear the
   relevant key from the stored rates object).
@@ -204,9 +204,61 @@ project's own storage key. `lib/projects.js` holds a lightweight index —
 `{ id, storageKey, createdAt }` per project — under `PROJECTS_INDEX_KEY`;
 everything else (name, date, GFA, items) lives in the project's own quote
 object, read via `readQuote`/`readQuotes`. An install that predates
-multi-project support (a single quote under the old fixed `gradcon-quote`
+multi-project support (a single quote under the old fixed `boma-quote`
 key) auto-migrates into project #1 the first time the index loads empty —
 see `migrateLegacyQuote`.
+
+## Trial gate (portal shell)
+
+The deployed portal is a **limited trial build**, and the whole gate lives in
+`portal/portal-shell.html` — nowhere else. There is no backend, so it is one
+hardcoded password plus a usage counter in localStorage:
+
+- **Password `5120`** (`TRIAL_PASSWORD`), the same for everyone. There are no
+  per-user accounts any more — the old email allow-list + per-user PIN, and
+  its "Change PIN" modal, are gone.
+- **A session lasts 1 hour** (`SESSION_MS`). A second-resolution ticker drives
+  the countdown pills on the dashboard and in the app bar, and signs the user
+  out the moment the hour is up.
+- **5 sessions are allowed** (`TRIAL_MAX_SESSIONS`), which is also
+  **5 hours of clock** (`TRIAL_MAX_MS`). Whichever runs out first locks the
+  portal permanently on the `GET FULL VERSION` screen (`#screen-locked`).
+
+State lives under `boma-trial` as
+`{ sessionsUsed, msUsed, current: { startedAt, expiresAt } | null }`. Two
+rules to keep in mind if you touch it:
+
+1. **`msUsed` counts finished sessions only.** Time for the session in
+   progress is derived from `current.startedAt` on every read
+   (`trialMsUsed`), so closing the tab mid-session doesn't hand back free
+   time — the hour keeps running whether the page is open or not. That's also
+   why a plain reload never spends a session: `restore()` sees a live
+   `current` and resumes it rather than starting a new one.
+2. **A session is spent on sign-in, not on expiry.** Ending one early (the
+   "End session" button) still burns the session but banks only the minutes
+   actually used, so the last session is capped to whatever is left of the
+   five hours — see the `Math.min(SESSION_MS, TRIAL_MAX_MS - t.msUsed)` in
+   the submit handler.
+
+This is a **demo limiter, not a security boundary**: it is per-browser,
+clearing site data resets it, and the password is in the shipped source. If
+this ever needs to actually hold, it has to move server-side.
+
+Note the gate is in the portal shell only. `npm run dev` serves the bare
+Quotes SPA (`index.html` → `src/main.jsx`) with no gate at all, which is
+what you want while developing; `npm run build:portal` — what Vercel runs —
+is the gated artifact.
+
+## Renamed storage keys
+
+Every localStorage key this app owns is prefixed `boma-`. That prefix used to
+be `gradcon-`, so `src/lib/legacyKeys.js` (`migrateLegacyKeys`, called from
+`src/main.jsx`) copies each `gradcon-*` key to its `boma-*` twin on startup —
+only where the new key isn't already set, so it's idempotent and never
+clobbers newer work. The three vanilla-JS portal tools and the shell carry a
+compact inline copy of the same logic at the top of their first `<script>`,
+so they migrate correctly when opened standalone too. If you add a key, use
+the `boma-` prefix and nothing else needs to change.
 
 ## Optional Supabase backend
 
@@ -247,11 +299,11 @@ lists only lines with a quantity entered. The rest of the editor gets
 ## Self-service element types (Element Types modal)
 
 `ELEMENT_TYPES` in `catalog.js` stays a static, code-reviewed list — but
-Grady can add his own element types from the app itself via the "Element
+An estimator can add their own element types from the app itself via the "Element
 Types" button (`components/ManageElementTypesModal.jsx`), so a new job
 that needs an element type nobody's coded yet doesn't have to wait on a
 code change. Custom types are stored separately under
-`gradcon-custom-element-types` (`{id, category, section, name, labour}`,
+`boma-custom-element-types` (`{id, category, section, name, labour}`,
 same shape as a built-in entry, `labour` restricted to the existing
 `LABOUR_TEMPLATES` keys) and merged with the built-ins at render time in
 `App.jsx` (`allElementTypes`/`allCategoryOrder`/`allSectionOrder`), which
@@ -264,12 +316,12 @@ defaults, the way those three components do, rather than importing
 
 ## Estimates → Quotes import bridge
 
-The separate "Estimates" tool (Gradcon Element Takeoff Engine, embedded
+The separate "Estimates" tool (BOMA Element Takeoff Engine, embedded
 in the combined portal) computes generic quantities — a bar diameter +
 length, a concrete grade + volume — that don't line up 1:1 with Quotes'
 named catalog SKUs. "Publish to Quote" in that tool writes its live
 Quantity Register (`{project, lines}`, i.e. its own `allLines()` output)
-to `localStorage["gradcon-estimate-export"]` and asks the portal shell to
+to `localStorage["boma-estimate-export"]` and asks the portal shell to
 switch to the Quotes app; `App.jsx` picks that up on load, runs it through
 `lib/estimateImport.js`'s `buildImportFromEstimate`, and creates a new
 project from the result. That function is deliberately conservative: it

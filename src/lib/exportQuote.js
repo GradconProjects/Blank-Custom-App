@@ -20,7 +20,7 @@
  */
 import { FULL_CATALOG, RESOURCE_COLS, CATEGORY_ORDER, SECTION_ORDER } from "../data/catalog.js";
 import { computeElementCost, computeGrandTotal, computeMarginLadder, rateKey, lookupRate, computeRowTotal, getDefaultMargin, getMarginSteps } from "./costing.js";
-import { GRADCON_LOGO_DATA_URI } from "./logo.js";
+import { BOMA_LOGO_DATA_URI } from "./logo.js";
 
 /** Rate ($/unit) backed out from the line's own total ÷ qty — always exactly
  * reproduces `Total = Qty × Rate` for the reader, regardless of whether the
@@ -263,7 +263,7 @@ table.margin col.g0 { width: 90px; } table.margin col.g1 { width: 110px; } table
 </style>
 </head>
 <body>
-<table><colgroup><col style="width:1px"></colgroup><tr><td style="border:none;padding:4px 8px;"><img src="${GRADCON_LOGO_DATA_URI}" height="34" alt="Gradcon Concrete Constructions"></td></tr></table>
+<table><colgroup><col style="width:1px"></colgroup><tr><td style="border:none;padding:4px 8px;"><img src="${BOMA_LOGO_DATA_URI}" height="34" alt="BOMA ESTIMATES"></td></tr></table>
 ${buildMetaTable(quote)}
 ${itemTableHtml}
 ${summaryTableHtml}
@@ -288,7 +288,7 @@ const csvRow = (...cells) => cells.map(csvField).join(",");
 export function buildQuoteCsv(quote, items, rates, categoryOrder = CATEGORY_ORDER, sectionOrder = SECTION_ORDER) {
   const groups = groupItems(items, rates, categoryOrder, sectionOrder);
   const lines = [];
-  lines.push(csvRow("GRADCON CONCRETE CONSTRUCTIONS"));
+  lines.push(csvRow("BOMA ESTIMATES"));
   lines.push(csvRow("Project", quote.projectName || "Untitled project"));
   lines.push(csvRow("Client", quote.clientName || ""));
   lines.push(csvRow("Date", quote.projectDate || ""));

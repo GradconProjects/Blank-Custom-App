@@ -33,7 +33,7 @@ const check = (name, fn) => {
   }
 };
 
-console.log("Gradcon Estimator — costing engine checks\n");
+console.log("BOMA ESTIMATES — costing engine checks\n");
 
 /* ---------- catalog shape ---------- */
 check("45 element types, 9 categories, 15 sections", () => {

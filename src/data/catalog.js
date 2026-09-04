@@ -1,5 +1,5 @@
 /**
- * Gradcon catalog data.
+ * BOMA ESTIMATES catalog data.
  *
  * Plain data only — no React, no side effects. This file (and lib/costing.js,
  * which consumes it) is deliberately kept importable by plain Node so the
@@ -10,7 +10,7 @@
  */
 
 /* ---------- Resource / labour catalog ---------- */
-// Crew-sheet columns, in the order they read on Gradcon's labour sheet:
+// Crew-sheet columns, in the order they read on the paper labour sheet:
 // the three 3+-person crews first, then plant, pump (hr AND m³ — distinct
 // keys, see CLAUDE.md rule 5), crane. `crew: true` marks the minimum-crew
 // columns; they count CREW-days (a whole crew booked for a day), so their
@@ -121,7 +121,7 @@ export const LABOUR_TEMPLATES = {
 /* ---------- Full material catalog ----------
  * weightBasis: true means Total Cost = (Qty * Unit Weight / 1000) * Unit Cost
  *              (Unit Cost is $/tonne). Only PROCESSED BAR is genuinely
- *              priced this way in Gradcon's supplier pricing.
+ *              priced this way in the supplier pricing.
  * areaBasis: true means Qty is entered in m² of coverage and Total Cost =
  *            ceil(Qty / Sheet Area) * Unit Cost (Unit Cost is $/sheet).
  *            Only SQUARE MESH works this way — sheets are bought whole, so
@@ -163,7 +163,7 @@ export const FULL_CATALOG = [
     ["SL102", "m2", 80, 141.18, 14.4], ["SL81", "m2", 105, 185.27, 14.4], ["RL718", "m2", 67, 168.71, 14.4], ["RL818", "m2", 79, 196, 14.4], ["RL918", "m2", 93, 230.73, 14.4],
     ["RL1018", "m2", 109, 255.85, 14.4], ["RL1118", "m2", 130.53, 231.12, 14.4], ["RL1218", "m2", 157, 328.1, 14.4],
   ]},
-  // Stock Bar's unitCost is derived from a flat $1825/tonne (GRADCON_STOCK_BAR_RATE_PER_TONNE)
+  // Stock Bar's unitCost is derived from a flat $1825/tonne (BOMA_STOCK_BAR_RATE_PER_TONNE)
   // × each bar's own unitWeight — same "one real steel rate, converted per product" approach
   // Processed Bar already uses below. It's still priced $/bar (lengthBasis), not by weight —
   // see rule 2 in CLAUDE.md — this only changes where the $/bar number comes from.
@@ -172,7 +172,7 @@ export const FULL_CATALOG = [
     ["N12 - 6.0m length", "m", 5.46, 9.96, null, 6], ["N16 - 6.0m length", "m", 9.6, 17.52, null, 6], ["N20 - 6.0m length", "m", 15.19, 27.72, null, 6],
     ["N24 - 6.0m length", "m", 21.83, 39.84, null, 6], ["N28 - 6.0m length", "m", 29.71, 54.22, null, 6], ["N32 - 6.0m length", "m", 38.81, 70.83, null, 6],
   ]},
-  // Uniform $1925/tonne (GRADCON_PROCESSED_BAR_RATE_PER_TONNE, matching Rates Library's own
+  // Uniform $1925/tonne (BOMA_PROCESSED_BAR_RATE_PER_TONNE, matching Rates Library's own
   // constant) across every diameter — Processed Bar has always been priced this way, a single
   // flat mill rate rather than a per-diameter price.
   { key: "PROCESSED BAR", label: "PROCESSED BAR (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
@@ -282,7 +282,7 @@ export const FULL_CATALOG = [
 }));
 
 /* ---------- Element types ----------
- * Every concrete/structural element Gradcon might reasonably meet across
+ * Every concrete/structural element BOMA ESTIMATES might reasonably meet across
  * ANY building or civil project — not curated per job. `category` is the
  * broad, foldable grouping (Foundations, Suspended Structure, ...) shown
  * on the Add-Element dropdown; `section` is the finer sub-group used by
@@ -364,7 +364,7 @@ export const CATEGORY_ORDER = [...new Set(ELEMENT_TYPES.map((t) => t.category))]
 export const SECTION_ORDER = [...new Set(ELEMENT_TYPES.map((t) => t.section))];
 
 /* ---------- Quote pipeline status ----------
- * A project's own stage through Gradcon's estimating/quoting pipeline —
+ * A project's own stage through the estimating/quoting pipeline —
  * distinct from Cost Planner's post-award project/tender status (Active/On
  * Hold/Complete, Tendering/Submitted/Won/Lost in cost-planner.html), which
  * tracks a job already won. This tracks getting there. Order below is the

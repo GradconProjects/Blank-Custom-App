@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { uid, getGstRate } from "../lib/costing.js";
-import { GRADCON_LOGO_DATA_URI } from "../lib/logo.js";
+import { BOMA_LOGO_DATA_URI } from "../lib/logo.js";
 import { newTenderQuote, seedTenderItems, computeTenderProjectSum } from "../lib/tenderQuoteDefaults.js";
 
 const fmtMoney = (n) => `$${(n || 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
- * The TENDER QUOTE — a direct copy of Gradcon's real quotation document
+ * The TENDER QUOTE — the full formal quotation document
  * (logo header, Date / Attention / Project block, numbered Project Details
  * line items each with a right-aligned "$… + GST" price and up to FOUR dot
  * points, Additional Options, Drawings, Tender Notes, Inclusions, Specific
@@ -19,7 +19,7 @@ const fmtMoney = (n) => `$${(n || 0).toLocaleString("en-AU", { minimumFractionDi
  * dot points = the element's published estimating quantities — the figures
  * that came across from the Estimates tab), and a Reseed button pulls them
  * fresh whenever the quote changes; the boilerplate sections seed from
- * Gradcon's real standard wording (lib/tenderQuoteDefaults.js).
+ * the standard tender wording (lib/tenderQuoteDefaults.js).
  *
  * Same dual-render pattern as the other two documents: a `hidden
  * print:block` copy (only when this is the active print target — App.jsx's
@@ -270,7 +270,7 @@ function ProjectSumEditor({ tq, set }) {
       <p className="text-[11px] text-neutral-500 mt-1.5">
         The sum adds up the line-item prices above (each read as its ex-GST figure) — type an override to replace it
         with a negotiated round figure. Markup here is an <b>extra</b> document-level markup: the seeded prices already
-        carry Gradcon's margin from the sell allocation, so leave it off unless you mean to add more on top.
+        carry BOMA ESTIMATES' margin from the sell allocation, so leave it off unless you mean to add more on top.
       </p>
     </div>
   );
@@ -309,7 +309,7 @@ function ReportContent({ quote, tq }) {
         <div className="flex-1 text-center pt-2">
           <span className="text-2xl font-bold underline underline-offset-4">QUOTATION{tq.rev ? ` (${tq.rev})` : ""}</span>
         </div>
-        <img src={GRADCON_LOGO_DATA_URI} alt="Gradcon Concrete Constructions" className="h-12 flex-none" />
+        <img src={BOMA_LOGO_DATA_URI} alt="BOMA ESTIMATES" className="h-12 flex-none" />
       </div>
 
       <table className="mb-3">
@@ -436,7 +436,7 @@ function ReportContent({ quote, tq }) {
       <div className="mt-8 break-inside-avoid border-t border-black pt-2 w-64">
         <div>{tq.signatureName}</div>
         <div>{tq.signatureTitle}</div>
-        <div>Gradcon Concrete Constructions</div>
+        <div>BOMA ESTIMATES</div>
       </div>
     </>
   );

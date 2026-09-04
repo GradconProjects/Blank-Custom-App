@@ -67,7 +67,7 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
     // Portal Settings "ask before deleting" toggle — explicitly off skips
     // the arm step and deletes on the first click.
     try {
-      const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+      const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
       if (p.confirmDeletes === false) { onDelete(id); return; }
     } catch { /* fall through to the confirm flow */ }
     setConfirmDeleteId(id);
@@ -95,7 +95,7 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
   const [sortBy, setSortBy] = useState(() => {
     // Initial sort from the portal Settings preference; session-local after that.
     try {
-      const p = JSON.parse(localStorage.getItem("gradcon-preferences")) || {};
+      const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
       return SORT_OPTIONS.some((o) => o.key === p.quotesDefaultSort) ? p.quotesDefaultSort : "added";
     } catch {
       return "added";
@@ -174,7 +174,7 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
           <h1 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
             <LayoutDashboard size={20} className="text-orange-500" /> Projects Dashboard
           </h1>
-          <p className="text-sm text-neutral-500">Every Gradcon quote, summed across the whole portfolio.</p>
+          <p className="text-sm text-neutral-500">Every quote, summed across the whole portfolio.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <input
