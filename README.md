@@ -13,13 +13,15 @@ subtotal → grand total → margin ladder with GST.
 
 ## Trial build
 
-The deployed portal is gated: sign in with the access password, and you get
-**5 sessions of 1 hour each — 5 hours in total**. The countdown runs in the
-header, a session survives a page reload without being spent, and once the
-allowance is gone the portal locks on a `GET FULL VERSION` screen. All of
-that lives in `portal/portal-shell.html`; it is a per-browser demo limiter
-rather than real auth (see `CLAUDE.md` → "Trial gate"). `npm run dev` serves
-the ungated Quotes app for development.
+The deployed portal has no login and no password — it opens straight into
+the app. Usage is metered **server-side** (`api/trial.js` + Supabase):
+**5 sessions of 1 hour, 5 hours in total**, after which it locks on a
+`GET FULL VERSION` screen. Because the counters live on the server rather
+than in the browser, clearing site data doesn't reset them; see
+`CLAUDE.md` -> "Trial meter" for how identity works and where its limits
+honestly are.
+
+Run `npm run verify:trial` after touching `api/trial.js`.
 
 ## Running it
 

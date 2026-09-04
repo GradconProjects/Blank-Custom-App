@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:portal": "vite build && node scripts/assemble-portal.mjs",
     "preview": "vite preview",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "verify:trial": "node scripts/verify-trial.mjs",
+    "verify:e2e": "node scripts/verify-portal-e2e.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

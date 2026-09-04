@@ -208,46 +208,54 @@ multi-project support (a single quote under the old fixed `boma-quote`
 key) auto-migrates into project #1 the first time the index loads empty —
 see `migrateLegacyQuote`.
 
-## Trial gate (portal shell)
+## Trial meter (no login)
 
-The deployed portal is a **limited trial build**, and the whole gate lives in
-`portal/portal-shell.html` — nowhere else. There is no backend, so it is one
-hardcoded password plus a usage counter in localStorage:
+The deployed portal has **no login screen and no password**. A visitor lands
+and the app opens immediately. What limits them is `api/trial.js`, a Vercel
+serverless function, and the `public.trial_visitors` table
+(`supabase/migrations/0003_trial_meter.sql`).
 
-- **Password `5120`** (`TRIAL_PASSWORD`), the same for everyone. There are no
-  per-user accounts any more — the old email allow-list + per-user PIN, and
-  its "Change PIN" modal, are gone.
-- **A session lasts 1 hour** (`SESSION_MS`). A second-resolution ticker drives
-  the countdown pills on the dashboard and in the app bar, and signs the user
-  out the moment the hour is up.
-- **5 sessions are allowed** (`TRIAL_MAX_SESSIONS`), which is also
-  **5 hours of clock** (`TRIAL_MAX_MS`). Whichever runs out first locks the
-  portal permanently on the `GET FULL VERSION` screen (`#screen-locked`).
+- **5 sessions, 1 hour each, 5 hours total** — whichever runs out first
+  shows `#screen-locked` ("GET FULL VERSION").
+- **A session starts on the first request that finds no live one**, so
+  landing on the page *is* starting a session. A reload during a live one
+  resumes it rather than spending another.
+- Time is charged from the session's own `started_at`, so closing the tab
+  doesn't pause the clock.
 
-State lives under `boma-trial` as
-`{ sessionsUsed, msUsed, current: { startedAt, expiresAt } | null }`. Two
-rules to keep in mind if you touch it:
+**The rule that matters: the client never decides anything.** The countdown
+in `portal-shell.html` is an animation between server answers, and it
+re-asks every 60 s. An earlier version kept the counters in `localStorage`
+and was worthless — "clear site data" was a reset button. If you move any
+part of this decision back into the browser, you have removed the limit.
+`trial_visitors` has RLS enabled with **no policies**, so the anon key can't
+read or write it; only `SUPABASE_SERVICE_ROLE_KEY`, which exists solely as a
+server-side env var, can.
 
-1. **`msUsed` counts finished sessions only.** Time for the session in
-   progress is derived from `current.startedAt` on every read
-   (`trialMsUsed`), so closing the tab mid-session doesn't hand back free
-   time — the hour keeps running whether the page is open or not. That's also
-   why a plain reload never spends a session: `restore()` sees a live
-   `current` and resumes it rather than starting a new one.
-2. **A session is spent on sign-in, not on expiry.** Ending one early (the
-   "End session" button) still burns the session but banks only the minutes
-   actually used, so the last session is capped to whatever is left of the
-   five hours — see the `Math.min(SESSION_MS, TRIAL_MAX_MS - t.msUsed)` in
-   the submit handler.
+**Identity, honestly.** A visitor is a signed HttpOnly cookie plus a hash of
+their IP. Someone who clears cookies or opens a private window looks new —
+unavoidable without a login, which is deliberately not what this does.
+`MAX_TRIALS_PER_IP` (3, over 30 days) is what stops that being free: past
+the cap, a "new" visitor from that network inherits the most-spent existing
+row instead of a fresh five hours. It's set to 3 rather than 1 because
+offices, universities and mobile carriers share addresses, and turning away
+a genuine second viewer is worse than letting a determined person retry.
 
-This is a **demo limiter, not a security boundary**: it is per-browser,
-clearing site data resets it, and the password is in the shipped source. If
-this ever needs to actually hold, it has to move server-side.
+**Owner bypass.** `TRIAL_OWNER_KEY` — visiting `/?key=<it>` sets a cookie
+that skips the meter, so you can always demo without burning trial. The key
+is scrubbed from the address bar on arrival.
 
-Note the gate is in the portal shell only. `npm run dev` serves the bare
-Quotes SPA (`index.html` → `src/main.jsx`) with no gate at all, which is
-what you want while developing; `npm run build:portal` — what Vercel runs —
-is the gated artifact.
+**Fallback mode.** If the env vars aren't set, `/api/trial` answers
+`configured: false` and the shell drops back to a local per-browser count so
+`npm run dev` and un-configured previews still work. That mode shows a
+`local` badge next to the session count. It is not a limit — never let a
+real deployment run in it.
+
+Checks: `npm run verify:trial` (Node-only, runs the real handler against an
+in-memory PostgREST — covers forged cookies, the IP cap, and that a database
+outage fails **closed** rather than granting unlimited access) and
+`npm run verify:e2e` (Playwright, drives the built portal; needs
+`npm run build:portal` and `npm i -D playwright` first).
 
 ## Renamed storage keys
 
