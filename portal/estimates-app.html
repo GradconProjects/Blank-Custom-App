@@ -441,7 +441,7 @@ function freshProjectState(){
   SELECTED_TYPES = {};
   INSTANCES = [];
   ID_COUNTER = 1;
-  ["boredpier","pilecap","groundbeam","suspslab","column"].forEach(id=>SELECTED_TYPES[id]=true);
+  ["piles","pilecap","groundbeam","suspslab","column"].forEach(id=>SELECTED_TYPES[id]=true);
 }
 function rerenderAllPages(){
   renderProjectForm(); renderDefaultsForm(); renderGeometryForm(); renderLibrary(); renderAddToolbar(); renderWorkspace(); computeAllAndRefresh(); renderTakeoffsBar();
@@ -1115,40 +1115,15 @@ const LIBRARY = [
    {id:"slabtrim", label:"Slab Trim / Cut-to-fall", calc:"generic", kind:"excavation"},
    {id:"backfill", label:"Backfill", calc:"generic", kind:"excavation"},
  ]},
- {group:"Piles", items:[
-   // Two families, and the difference is not cosmetic — it decides what the
-   // takeoff can honestly report.
-   //
-   // CAST IN PLACE: a hole filled with concrete and a cage. The `pier`
-   // calculator measures the poured volume, the cage and the ligatures.
-   {id:"boredpier", label:"Bored Pier", calc:"pier"},
-   {id:"cfapile", label:"CFA Pile (continuous flight auger)", calc:"pier"},
-   {id:"drivencispile", label:"Driven Cast-In-Situ Pile", calc:"pier"},
-   {id:"minipile", label:"Mini Pile / Micropile", calc:"pier"},
-   //
-   // SUPPLIED AND DRIVEN: manufactured off site, so there is no site pour to
-   // measure — the quantities are piles, lineal metres, and a supply volume
-   // or tonnage from the section. The `pilesupply` calculator carries every
-   // shape (square, octagonal, hexagonal, circular, hollow, H, sheet, screw,
-   // timber); these entries just preselect one.
-   {id:"precastpile", label:"Precast Concrete Pile (square / octagonal / hex)", calc:"pilesupply", shape:"precast_square"},
-   {id:"spunpile", label:"Spun Concrete Pile (hollow circular)", calc:"pilesupply", shape:"spun_hollow"},
-   {id:"steeltubepile", label:"Steel Tube / Pipe Pile", calc:"pilesupply", shape:"steel_tube"},
-   {id:"steelhpile", label:"Steel H / UB Bearing Pile", calc:"pilesupply", shape:"steel_h"},
-   {id:"sheetpile", label:"Sheet Pile Wall", calc:"pilesupply", shape:"sheet"},
-   {id:"screwpile", label:"Screw / Helical Pile", calc:"pilesupply", shape:"screw"},
-   {id:"timberpile", label:"Timber Pile", calc:"pilesupply", shape:"timber"},
-   //
-   // The cap and the capping beam belong to the piling package as much as to
-   // the foundations — see PILE_CAP_ITEM / CAPPING_BEAM_ITEM above. These are
-   // the same elements, not copies: one id, one tick, one set of quantities.
-   // Both carry the full starter/dowel detailing (bars out of the cap into
-   // the column above, embedment, projection, hook and lap), and the piles
-   // themselves carry their starters up into the cap.
-   PILE_CAP_ITEM,
-   CAPPING_BEAM_ITEM,
- ]},
  {group:"Foundations", items:[
+   // ONE Piles element, not a list of them: the pile TYPE (bored, CFA,
+   // driven cast-in-situ, precast, spun, steel tube, H, sheet, screw,
+   // timber, micropile) and the CROSS-SECTION are dropdowns on the card, so
+   // the library stays short and switching type keeps what you already
+   // typed. Pile Cap and Capping Beam are below as well as being a tab on
+   // this element — measure the cap here when it belongs to one pile group,
+   // or add it standalone when it doesn't.
+   {id:"piles", label:"Piles", calc:"piles"},
    {id:"stripfooting", label:"Strip Footing", calc:"stripfooting"},
    {id:"padfooting", label:"Pad Footing", calc:"padfooting"},
    {id:"stumpfooting", label:"Stump Footing Pad", calc:"padfooting", kind:"stump"},
@@ -1209,11 +1184,29 @@ const LIBRARY = [
 // every export must not depend on which list happened to be iterated last,
 // so an explicit `stage` wins and otherwise the FIRST group it appears under
 // sticks. LIB_INDEX keeps the first occurrence for the same reason.
+// Element types that were once their own library entries and are now folded
+// into the single Piles element. They are NOT rendered in the library, but
+// they stay resolvable so a takeoff saved before the change still opens.
+const LEGACY_LIB_ITEMS = [
+  {id:"boredpier", label:"Bored Pier", calc:"piles", stage:"Foundations"},
+  {id:"cfapile", label:"CFA Pile", calc:"piles", stage:"Foundations"},
+  {id:"drivencispile", label:"Driven Cast-In-Situ Pile", calc:"piles", stage:"Foundations"},
+  {id:"minipile", label:"Mini Pile / Micropile", calc:"piles", stage:"Foundations"},
+  {id:"precastpile", label:"Precast Concrete Pile", calc:"piles", stage:"Foundations"},
+  {id:"spunpile", label:"Spun Concrete Pile", calc:"piles", stage:"Foundations"},
+  {id:"steeltubepile", label:"Steel Tube / Pipe Pile", calc:"piles", stage:"Foundations"},
+  {id:"steelhpile", label:"Steel H / UB Bearing Pile", calc:"piles", stage:"Foundations"},
+  {id:"sheetpile", label:"Sheet Pile Wall", calc:"piles", stage:"Foundations"},
+  {id:"screwpile", label:"Screw / Helical Pile", calc:"piles", stage:"Foundations"},
+  {id:"timberpile", label:"Timber Pile", calc:"piles", stage:"Foundations"},
+];
+
 const LIB_INDEX = {};
 LIBRARY.forEach(g=>g.items.forEach(it=>{
   if(!it.groupName) it.groupName = it.stage || g.group;
   if(!LIB_INDEX[it.id]) LIB_INDEX[it.id] = it;
 }));
+LEGACY_LIB_ITEMS.forEach(it=>{ it.groupName = it.stage; if(!LIB_INDEX[it.id]) LIB_INDEX[it.id] = it; });
 
 /* ============================= GENERIC FORM HELPERS ============================= */
 function num(v,d){ v=parseFloat(v); return isNaN(v)? (d===undefined?0:d) : v; }
@@ -1989,6 +1982,155 @@ function computePier(inst,def){
     lines.push(baseLine(inst,def,{materialGroup:"Formwork",material:"Casing / temporary formwork",spec:"Perimeter × depth",qty:area,unit:"m²",waste:PROJECT.formworkWaste,finalQty:withWaste(area,PROJECT.formworkWaste),formula:`${N}×π×D×H`}));
   }
   return {lines,warnings};
+}
+
+/* ---- PILES (one element, every type) ----
+   One "Piles" element rather than a dozen library entries: the estimator
+   picks the TYPE and the CROSS-SECTION on the card, and the takeoff follows.
+   The two families behave completely differently and that is the whole point
+   of the type selector:
+
+     cast in situ — a hole filled with concrete and a cage, so the takeoff
+                    carries concrete, reinforcement AND spoil. Handled by the
+                    existing pier calculator.
+     supplied     — manufactured off site and driven, so there is no site
+                    pour: piles, lineal metres, and a supply volume or
+                    tonnage. Handled by the pilesupply calculator.
+
+   This module is a dispatcher over those two rather than a third
+   implementation of either, so neither can drift from it. On top it adds the
+   type/section header and the Pile Cap tab. */
+const PILE_FAMILY_CAST = "castinsitu", PILE_FAMILY_SUPPLIED = "supplied";
+
+const PILE_TYPES = [
+  ["bored",     "Bored / CFA — cast in situ",        PILE_FAMILY_CAST,     ["circular"]],
+  ["dcis",      "Driven cast in situ",               PILE_FAMILY_CAST,     ["circular"]],
+  ["micropile", "Mini pile / micropile — cast in situ", PILE_FAMILY_CAST,  ["circular"]],
+  ["precast",   "Precast concrete — driven",         PILE_FAMILY_SUPPLIED, ["square","octagonal","hexagonal","circular"]],
+  ["spun",      "Spun concrete — driven",            PILE_FAMILY_SUPPLIED, ["hollow"]],
+  ["steeltube", "Steel tube / pipe — driven",        PILE_FAMILY_SUPPLIED, ["hollow"]],
+  ["steelh",    "Steel H / UB bearing — driven",     PILE_FAMILY_SUPPLIED, ["hsection"]],
+  ["sheet",     "Sheet pile wall — driven",          PILE_FAMILY_SUPPLIED, ["sheetsec"]],
+  ["screw",     "Screw / helical",                   PILE_FAMILY_SUPPLIED, ["circular"]],
+  ["timber",    "Timber — driven",                   PILE_FAMILY_SUPPLIED, ["circular"]],
+];
+const PILE_SECTION_LABELS = {
+  circular:"Circular / round", square:"Square", octagonal:"Octagonal",
+  hexagonal:"Hexagonal", hollow:"Hollow circular", hsection:"H / UB section",
+  sheetsec:"Sheet section",
+};
+/** (type, section) -> the shape key computePileSupply already understands. */
+const PILE_SHAPE_FOR = {
+  "precast|square":"precast_square", "precast|octagonal":"precast_octagonal",
+  "precast|hexagonal":"precast_hex", "precast|circular":"precast_circular",
+  "spun|hollow":"spun_hollow", "steeltube|hollow":"steel_tube",
+  "steelh|hsection":"steel_h", "sheet|sheetsec":"sheet",
+  "screw|circular":"screw", "timber|circular":"timber",
+};
+const pileTypeDef = (t) => PILE_TYPES.find((x) => x[0] === t) || PILE_TYPES[0];
+const pileFamily  = (d) => pileTypeDef(d.pileType)[2];
+
+/** Keep `shape` in step with the type/section pair the estimator picked. */
+function syncPileShape(d){
+  const def = pileTypeDef(d.pileType);
+  if(def[3].indexOf(d.section) === -1) d.section = def[3][0];
+  if(def[2] === PILE_FAMILY_SUPPLIED){
+    d.shape = PILE_SHAPE_FOR[d.pileType + "|" + d.section] || "precast_square";
+  }
+  return d;
+}
+
+function pilesDefaults(){
+  // Both families' fields live side by side. The keys they share (qty, cover,
+  // grade, and the whole starter set) mean the same thing in each, so a type
+  // switch keeps everything the estimator already typed.
+  return Object.assign({ pileType:"bored", section:"circular", sectionDesc:"" },
+    pierDefaults(), pileSupplyDefaults(),
+    { cap: Object.assign({ on:false, kind:"pilecap" }, pileCapDefaults()) });
+}
+
+/* -- the Pile Cap tab: the cap or capping beam this pile group runs into -- */
+function renderPilesCapTab(inst){
+  const c = inst.data.cap || {};
+  const isBeam = c.kind === "beam";
+  return `${chk("cap.on", c.on, "Measure the pile cap / capping beam on this element", "capOn")}
+  <div class="subsec ${c.on?'':'hidden'}" data-show-if="capOn">
+   <div class="grid cols3">
+    ${F("Cap type", selOpts("cap.kind", c.kind, [["pilecap","Pile cap (one group of piles)"],["beam","Capping beam (a row of piles)"]], true))}
+    ${F("Quantity", inpNum("cap.qty", c.qty))}
+    ${F("Concrete grade (MPa)", inpNum("cap.grade", c.grade))}
+   </div>
+   <div class="grid cols4">
+    ${F(isBeam ? "Beam length (mm)" : "Length (mm)", inpNum("cap.L", c.L))}
+    ${F(isBeam ? "Beam width (mm)" : "Width (mm)", inpNum("cap.W", c.W))}
+    ${F("Depth (mm)", inpNum("cap.D", c.D))}
+    ${F("Cover (mm)", inpNum("cap.cover", c.cover))}
+   </div>
+   <div class="sechead">Cap reinforcement</div>
+   <div class="grid cols4">
+    ${chk("cap.botX", c.botX, "Bottom X bars")}${F("Dia", barSizeSel("cap.botXDia", c.botXDia))}${F("Spacing (mm)", inpNum("cap.botXSpacing", c.botXSpacing))}${chk("cap.botXLap", c.botXLap, "Lap")}
+    ${chk("cap.botY", c.botY, "Bottom Y bars")}${F("Dia", barSizeSel("cap.botYDia", c.botYDia))}${F("Spacing (mm)", inpNum("cap.botYSpacing", c.botYSpacing))}${chk("cap.botYLap", c.botYLap, "Lap")}
+    ${chk("cap.topX", c.topX, "Top X bars")}${F("Dia", barSizeSel("cap.topXDia", c.topXDia))}${F("Spacing (mm)", inpNum("cap.topXSpacing", c.topXSpacing))}${chk("cap.topXLap", c.topXLap, "Lap")}
+    ${chk("cap.topY", c.topY, "Top Y bars")}${F("Dia", barSizeSel("cap.topYDia", c.topYDia))}${F("Spacing (mm)", inpNum("cap.topYSpacing", c.topYSpacing))}${chk("cap.topYLap", c.topYLap, "Lap")}
+   </div>
+   <div class="sechead">Starters out of the cap (into the column above)</div>
+   <div class="grid cols4">
+    ${chk("cap.colStarters", c.colStarters, "Column starters")}
+    ${F("Quantity", inpNum("cap.colQty", c.colQty))}
+    ${F("Diameter", barSizeSel("cap.colDia", c.colDia))}
+    ${F("Embedment into cap (mm)", inpNum("cap.colEmbed", c.colEmbed))}
+    ${F("Projection into column (mm)", inpNum("cap.colProj", c.colProj))}
+    ${F("Hook type", anchorSel("cap.colHook", c.colHook))}
+    ${F("Lap (mm, 0 = none)", inpNum("cap.colLap", c.colLap))}
+   </div>
+   <div class="tip"><span class="ico">🎓</span><div>This measures the cap <b>on this element</b>, which is the quick way when the cap belongs to this pile group and nothing else. For a cap picked up by several different pile groups — or one you want to schedule on its own — leave this off and add the standalone <b>Pile Cap</b> or <b>Capping Beam</b> element instead; both are still in the Foundations list. The dowels UP from the piles into this cap live on the Connections / Dowels tab, entered once at the pile so the cap never doubles them.</div></div>
+  </div>`;
+}
+
+function renderPiles(inst){
+  const d = syncPileShape(inst.data);
+  const def = pileTypeDef(d.pileType);
+  const cast = def[2] === PILE_FAMILY_CAST;
+  const parts = cast ? renderPier(inst) : renderPileSupply(inst);
+
+  const header = `<div class="sechead">Pile type &amp; section</div>
+  <div class="grid cols3">
+   ${F("Pile type", selOpts("pileType", d.pileType, PILE_TYPES.map(([k,l])=>[k,l]), true))}
+   ${F("Cross-section", selOpts("section", d.section, def[3].map((k)=>[k, PILE_SECTION_LABELS[k]]), true))}
+   ${F("Section description (optional)", inpText("sectionDesc", d.sectionDesc))}
+  </div>
+  <p class="small">${cast
+    ? `<b>Cast in situ</b> — concrete is poured against the ground, so the takeoff carries the concrete, the cage and the spoil. Section: <b>${num(d.dia)}mm dia</b>.`
+    : `<b>Supplied and driven</b> — manufactured off site, so there is no site pour to measure: the takeoff carries pile count, lineal metres, and a supply volume or tonnage. Section: <b>${PILE_SECTION_LABELS[d.section]}</b>.`}</p>
+  <hr class="rule">`;
+
+  parts.geom = header + parts.geom;
+  parts.pilecap = renderPilesCapTab(inst);
+  return parts;
+}
+
+function computePiles(inst, def){
+  const d = syncPileShape(inst.data);
+  const cast = pileFamily(d) === PILE_FAMILY_CAST;
+  const out = cast ? computePier(inst, def) : computePileSupply(inst, def);
+
+  // The cap, when it is being measured here rather than as its own element.
+  const c = d.cap;
+  if(c && c.on){
+    // Delegate to the pile cap calculator rather than reimplementing it, so
+    // an integrated cap and a standalone one can never give different steel.
+    const capInst = { id: inst.id, label: inst.label + " — cap", data: c };
+    const capDef = { groupName: def.groupName, label: c.kind === "beam" ? "Capping Beam" : "Pile Cap", calc: "pilecap" };
+    const capOut = computePileCap(capInst, capDef);
+    (capOut.lines || []).forEach((l) => { l.category = capDef.label; out.lines.push(l); });
+    (capOut.warnings || []).forEach((w) => out.warnings.push(w));
+  }
+  return out;
+}
+
+function diagPiles(inst){
+  return pileFamily(syncPileShape(inst.data)) === PILE_FAMILY_CAST
+    ? diagPier(inst) : diagPileSupply(inst);
 }
 
 /* ---- SUPPLIED / DRIVEN PILES ----
@@ -3982,6 +4124,7 @@ const CALC = {
   pier:{defaults:pierDefaults, render:renderPier, compute:computePier, diagram:diagPier},
   pilecap:{defaults:pileCapDefaults, render:renderPileCap, compute:computePileCap, diagram:diagPileCap},
   pilesupply:{defaults:pileSupplyDefaults, render:renderPileSupply, compute:computePileSupply, diagram:diagPileSupply},
+  piles:{defaults:pilesDefaults, render:renderPiles, compute:computePiles, diagram:diagPiles},
   stripfooting:{defaults:stripFootingDefaults, render:renderStripFooting, compute:computeStripFooting, diagram:diagStripFooting},
   padfooting:{defaults:padFootingDefaults, render:renderPadFooting, compute:computePadFooting, diagram:diagPadFooting},
   beam:{defaults:beamDefaults, render:renderBeam, compute:computeBeam, diagram:diagBeam},
@@ -4190,7 +4333,7 @@ function duplicateInstance(id){
   renderWorkspace(); computeAllAndRefresh();
 }
 
-const TABS=[["geom","Geometry"],["conc","Concrete"],["reo","Reinforcement"],["edgebeams","Edge Beams"],["intbeams","Internal Beams"],["form","Formwork"],["exc","Excavation"],["blind","Blinding / Insulation"],["conns","Connections / Dowels"],["results","Results"]];
+const TABS=[["geom","Geometry"],["conc","Concrete"],["reo","Reinforcement"],["pilecap","Pile Cap"],["edgebeams","Edge Beams"],["intbeams","Internal Beams"],["form","Formwork"],["exc","Excavation"],["blind","Blinding / Insulation"],["conns","Connections / Dowels"],["results","Results"]];
 
 function renderWorkspace(){
   let host=document.getElementById("cardsHost");
@@ -5321,10 +5464,12 @@ const CSV_UNITS = {
 const CSV_TYPE_KEYWORDS = [
   [/pad\s*foot/i,"padfooting"], [/strip\s*foot|footing/i,"stripfooting"],
   [/grout\s*pad|base\s*plate/i,"columnbaseplate"],
-  [/\bcfa\b|continuous\s*flight\s*auger/i,"cfapile"],
-  [/driven\s*cast[\s-]*in[\s-]*situ|dcis\b/i,"drivencispile"],
-  [/mini\s*pile|micro\s*pile/i,"minipile"],
-  [/bored\s*pier|caisson|drill(ed)?\s*shaft/i,"boredpier"], [/pile\s*cap/i,"pilecap"],
+  // "pile cap" must be tested BEFORE the generic pile patterns or a cap
+  // schedule would be read as a pile.
+  [/pile\s*cap/i,"pilecap"],
+  [/\bcfa\b|continuous\s*flight\s*auger|bored\s*pier|caisson|drill(ed)?\s*shaft/i,"piles"],
+  [/driven\s*cast[\s-]*in[\s-]*situ|dcis\b|mini\s*pile|micro\s*pile/i,"piles"],
+  [/precast\s*pile|spun\s*pile|screw\s*pile|helical\s*pile|sheet\s*pile|timber\s*pile|\bpile\b/i,"piles"],
   [/ground\s*beam/i,"groundbeam"], [/susp(ended)?\s*beam/i,"suspbeam"],
   [/raft/i,"raftslab"], [/waffle/i,"waffleslab"], [/industrial\s*slab/i,"industrialslab"],
   [/susp(ended)?\s*slab/i,"suspslab"], [/roof\s*slab/i,"roofslab"],
@@ -5703,7 +5848,7 @@ if(!restoredFromSave){
   // Fresh install / cleared storage only — seed a couple of default-selected
   // common types for convenience. Never runs over a restored project, so it
   // can't silently re-tick types the estimator deliberately unticked.
-  ["boredpier","pilecap","groundbeam","suspslab","column"].forEach(id=>SELECTED_TYPES[id]=true);
+  ["piles","pilecap","groundbeam","suspslab","column"].forEach(id=>SELECTED_TYPES[id]=true);
   renderLibrary(); renderAddToolbar();
 }
 // "Estimates opens on" preference — jump to the chosen tab on boot (the nav

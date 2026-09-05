@@ -162,41 +162,51 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
    the one place to change — but check every place `GST_RATE` or `* 1.1`
    is used (currently just `computeMarginLadder`).
 
-## Estimates — the Piles group
+## Estimates — the Piles element
 
-`portal/estimates-app.html`'s `LIBRARY` carries a **Piles** group between
-Earthworks and Foundations, split by how the pile is actually built:
+`portal/estimates-app.html` has **one** `Piles` element, under Foundations.
+The pile TYPE and the CROSS-SECTION are dropdowns on the card, not separate
+library entries — an earlier version listed eleven of them and it read as
+clutter.
 
-- **Cast in place** (the `pier` calculator — measures the poured volume and
-  cage): Bored Pier, CFA, Driven Cast-In-Situ, Mini Pile / Micropile.
-- **Supplied and driven** (the `pilesupply` calculator): every shape —
-  square, octagonal, hexagonal, circular, spun hollow, steel tube, steel
-  H/UB, sheet, screw/helical, timber. These are manufactured off site, so
-  there is no site pour to measure: it reports pile count, supplied and
-  driven lineal metres, a supply volume for concrete sections and a tonnage
-  for steel ones. Where a tonnage needs a kg/m the estimator supplies it and
-  the module **warns rather than inventing one** — never make it guess.
+`calc:"piles"` is a **dispatcher**, not a third implementation. The type
+selects the family and the family selects the calculator:
 
-**Pile Cap and Capping Beam appear in two groups at once**, under Piles and
-still under Foundations. They are the *same objects* (`PILE_CAP_ITEM`,
-`CAPPING_BEAM_ITEM`) referenced from both arrays, so one id, one tick, one
-set of quantities — there is no way to double-count them. Each carries an
-explicit `stage` so the export's Stage column stays "Foundations" whichever
-list it was reached from, and `LIB_INDEX` keeps the *first* occurrence rather
-than whichever group was iterated last. `renderLibrary()` redraws on every
-tick so the twin checkbox stays in sync.
+- **cast in situ** (bored/CFA, driven cast-in-situ, micropile) → the existing
+  `pier` calculator. A hole filled with concrete and a cage, so the takeoff
+  carries concrete, reinforcement *and* spoil.
+- **supplied and driven** (precast square/octagonal/hexagonal/circular, spun
+  hollow, steel tube, steel H/UB, sheet, screw, timber) → `pilesupply`.
+  Manufactured off site, so there is no site pour: pile count, lineal metres,
+  and a supply volume or tonnage. Where a tonnage needs a kg/m the estimator
+  supplies it and the module **warns rather than inventing one**.
 
-The starter/dowel chain runs the whole way up and every step is editable:
-pile → cap → column. Those fields live on the **Connections / Dowels** tab,
-which is the `conns` key a calculator's `render()` returns — `renderPileCap`
-once built that section and then forgot to return it, so the bars billed off
-the defaults with no field to edit them. If you add a calculator with
-connections, check the key is actually in the return.
+`syncPileShape` keeps `d.shape` in step with the (type, section) pair via
+`PILE_SHAPE_FOR`, and narrows the section list to what that type actually
+comes in. Both selects carry `data-rerender` because changing either changes
+which fields the card shows — a show/hide toggle isn't enough.
 
-Dowels are entered **once, at the pile**, and name the cap or capping beam
-they run into (`targetSelect` takes an array of calcs, so a pile offers both
-`pilecap` and `beam` targets). Counting them on the pile is what stops the
-cap double-counting them.
+**The Pile Cap tab** (`pilecap`, in `TABS` right after Reinforcement) measures
+the cap or capping beam on the pile element itself, for the common case where
+the cap belongs to one pile group. It delegates to `computePileCap` with the
+nested `data.cap` object rather than reimplementing it, so an integrated cap
+and a standalone one can never give different steel. Its fields bind through
+dotted paths (`cap.L`, `cap.botXDia`) — `getPath`/`setPath` handle those.
+
+**Pile Cap and Capping Beam remain their own Foundations element types**, for
+caps picked up by several pile groups or scheduled separately.
+
+Dowels are entered **once, at the pile**, on the Connections / Dowels tab,
+and name the cap or capping beam they run into (`targetSelect` takes an array
+of calcs). Counting them on the pile is what stops the cap double-counting
+them. `renderPileCap` once built its starter section and then forgot to
+return `conns`, so the bars billed off the defaults with no field to edit
+them — if you add a calculator with connections, check the key is in the
+return.
+
+`LEGACY_LIB_ITEMS` keeps the retired per-type ids (`boredpier`,
+`precastpile`, …) resolvable in `LIB_INDEX` without rendering them, so a
+takeoff saved before this change still opens.
 
 New workspace cards open **expanded**. They used to roll up the instant they
 appeared, which hid the very fields you added the element to fill in; the
