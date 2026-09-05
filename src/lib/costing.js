@@ -401,9 +401,21 @@ export function computeElementCost(item, rates) {
  * steel-fixing hours; kept separate from computeElementCost's own totals
  * (which only ever COST Processed Bar by weight — see CLAUDE.md rule 2).
  */
+/**
+ * The reinforcement categories, and ONLY these. This used to be "any product
+ * carrying a unitWeight", which was true right up until structural steel
+ * arrived — every UB, SHS and purlin carries a kg/m too, and they were
+ * silently counted as reinforcement, booking steel-FIXING crew days for
+ * steel that gets erected by a crane. A whitelist can't drift that way.
+ */
+const REINFORCEMENT_CATEGORIES = new Set([
+  "TRENCH MESH", "SQUARE MESH", "STOCK BAR", "PROCESSED BAR",
+]);
+
 export function computeElementReinforcementTonnes(item, rates) {
   let totalKg = 0;
   FULL_CATALOG.forEach((cat) => {
+    if (!REINFORCEMENT_CATEGORIES.has(cat.key)) return;
     cat.products.forEach((p) => {
       if (p.unitWeight == null) return;
       const qKey = rateKey(cat.key, p.name, p.unit);
@@ -440,6 +452,16 @@ const EXCAVATE_TASK_MATCH = /excavate/i;                      // "Excavate & pre
 const FORMWORK_TASK_MATCH = /formwork|box out|prop & form/i;  // legacy per-type templates only
 const STRIP_TASK_MATCH = /^strip/i;
 const GENERAL_TASK_MATCH = /washout|tidy|clean|patch/i;       // "Washout / clean / tidy"
+// The steel erection sequence (LABOUR_TEMPLATES.steel). "Erect steel frame"
+// is driven by tonnage, sheeting by area; bolt-up, welding and the rest are
+// too piece-count dependent to derive and stay manual, like formwork.
+/** Categories whose Qty is metres of section priced $/tonne — their tonnage
+ *  is what the erection crew stands. */
+const STEEL_SECTION_CATEGORY = /^STEEL SECTIONS/;
+/** Fabricated assemblies already quoted by the tonne. */
+const STEEL_FABRICATED_CATEGORY = /^STEEL FRAMING/;
+const STEEL_ERECT_TASK_MATCH = /erect steel/i;
+const STEEL_SHEET_TASK_MATCH = /roof & wall sheeting/i;
 
 /** The quantities each crew-sheet row draws on, read DIRECTLY from the
  * element's entered line items: concrete m³ from the CONCRETE rows, formwork
@@ -448,18 +470,39 @@ const GENERAL_TASK_MATCH = /washout|tidy|clean|patch/i;       // "Washout / clea
  * labour engine can run inside computeElementCost without recursion. */
 export function labourQuantities(item, rates) {
   let concreteM3 = 0, formworkM2 = 0, finishM2 = 0, excavationM3 = 0;
+  let steelTonnes = 0, claddingM2 = 0;
   FULL_CATALOG.forEach((cat) => {
-    if (cat.key !== "CONCRETE" && cat.key !== "FORMWORK" && cat.key !== "SQUARE MESH" && cat.key !== "OTHER ALLOWANCES") return;
+    const steelSection = cat.weightBasis && STEEL_SECTION_CATEGORY.test(cat.key);
+    const steelFabricated = STEEL_FABRICATED_CATEGORY.test(cat.key);
+    const cladding = cat.key === "ROOF & WALL CLADDING";
+    if (!steelSection && !steelFabricated && !cladding &&
+        cat.key !== "CONCRETE" && cat.key !== "FORMWORK" && cat.key !== "SQUARE MESH" && cat.key !== "OTHER ALLOWANCES") return;
     cat.products.forEach((p) => {
-      const qty = Number(item.qtys[rateKey(cat.key, p.name, p.unit)]) || 0;
+      const qKey = rateKey(cat.key, p.name, p.unit);
+      const qty = Number(item.qtys[qKey]) || 0;
       if (qty <= 0) return;
-      if (cat.key === "CONCRETE" && !SURCHARGE_PRODUCT_MATCH.test(p.name)) concreteM3 += qty; // the surcharge row is a fee, not poured volume
+      if (steelSection) {
+        // weightBasis: Qty is metres, so tonnage needs the section's kg/m —
+        // the rate, not the catalog, so a Rates-modal override is honoured.
+        const rate = lookupRate(rates, qKey, { unitWeight: p.unitWeight });
+        steelTonnes += (qty * (rate.unitWeight || 0)) / 1000;
+      } else if (steelFabricated) {
+        // These are already quoted in tonnes of finished frame; the per-item
+        // and per-metre lines in the same category aren't erection tonnage.
+        if (p.unit === "t") steelTonnes += qty;
+      } else if (cladding) {
+        if (p.unit === "m2") claddingM2 += qty;
+      } else if (cat.key === "CONCRETE" && !SURCHARGE_PRODUCT_MATCH.test(p.name)) concreteM3 += qty; // the surcharge row is a fee, not poured volume
       else if (cat.key === "FORMWORK" && p.unit === "m2") formworkM2 += qty;
       else if (cat.key === "SQUARE MESH") finishM2 += qty;
       else if (cat.key === "OTHER ALLOWANCES" && /soil removal/i.test(p.name)) excavationM3 += qty; // spoil volume ≈ excavation m³
     });
   });
-  return { concreteM3, formworkM2, finishM2, excavationM3, reinfTonnes: computeElementReinforcementTonnes(item, rates) };
+  return {
+    concreteM3, formworkM2, finishM2, excavationM3,
+    steelTonnes: round2(steelTonnes), claddingM2,
+    reinfTonnes: computeElementReinforcementTonnes(item, rates),
+  };
 }
 
 /**
@@ -521,6 +564,8 @@ export function taskRowMeta(taskName, lq) {
   if (CONCRETE_POUR_TASK_MATCH.test(taskName)) return { unit: "m³", autoQty: lq ? lq.concreteM3 : undefined };
   if (STEEL_FIXING_TASK_MATCH.test(taskName)) return { unit: "t", autoQty: lq ? round2(lq.reinfTonnes) : undefined };
   if (FINISH_TASK_MATCH.test(taskName)) return { unit: "m²", autoQty: lq ? lq.finishM2 : undefined };
+  if (STEEL_ERECT_TASK_MATCH.test(taskName)) return { unit: "t", autoQty: lq ? lq.steelTonnes : undefined };
+  if (STEEL_SHEET_TASK_MATCH.test(taskName)) return { unit: "m²", autoQty: lq ? lq.claddingM2 : undefined };
   if (EXCAVATE_TASK_MATCH.test(taskName)) return { unit: "m³", autoQty: lq ? lq.excavationM3 : undefined };
   if (FORMWORK_TASK_MATCH.test(taskName) && !STRIP_TASK_MATCH.test(taskName)) return { unit: "m²", autoQty: lq ? lq.formworkM2 : undefined };
   return { unit: "", autoQty: undefined };
@@ -580,6 +625,7 @@ export function autoLabourQtys(item, rates) {
   const finishM2Block = prodRate(rates, "Surface finishing — m² per crew-day", "m²/day", 300);
   const generalM3Block = prodRate(rates, "General labour — m³ per crew-day", "m³/day", 60);
   const pumpHrsPour = prodRate(rates, "Concrete pump — hours per pour", "hrs", 6);
+  const erectTBlock = prodRate(rates, "Steel erection — tonnes per crew-day", "t/day", 4);
 
   // qty → crew-days, decimals kept: 36 m³ at 10 m³/crew-day is 3.6
   // crew-days, 2.99 t of steel is 2.99 — the old whole-crew rounding
@@ -618,9 +664,23 @@ export function autoLabourQtys(item, rates) {
       put(task, "steelfixer_day", crewDays(q, steelTBlock)); // 1 t = a 5-man crew's day
     } else if (FINISH_TASK_MATCH.test(task.name)) {
       put(task, "concreter_day", crewDays(q, finishM2Block));
+    } else if (STEEL_ERECT_TASK_MATCH.test(task.name)) {
+      // Standing the frame also books the crane for the same days — steel
+      // does not go up without one, and forgetting the crane is the classic
+      // way a steel quote comes in short.
+      const days = crewDays(q, erectTBlock);
+      put(task, "erector_day", days);
+      put(task, "crane_day", days > 0 ? round2(days) : 0);
+    } else if (STEEL_SHEET_TASK_MATCH.test(task.name)) {
+      put(task, "erector_day", crewDays(q, prodRate(rates, "Surface finishing — m² per crew-day", "m²/day", 300)));
     } else if (GENERAL_TASK_MATCH.test(task.name)) {
       put(task, "labourer_day", crewDays(task.qty !== undefined && task.qty !== "" ? Number(task.qty) || 0 : lq.concreteM3, generalM3Block));
     }
+    // Bolt-up, site welding, purlins/girts and touch-up get NO auto fill
+    // either: on light framing the piece count drives them far more than the
+    // tonnage does, so a derived figure would be confidently wrong. Their Qty
+    // columns stay blank and the cells are entered by hand.
+    //
     // Formwork ("prop & form") and Excavation rows deliberately get NO auto
     // crew/plant fill — propping effort varies by system and excavator days
     // by ground conditions, so those cells stay blank and are entered

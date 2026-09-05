@@ -17,7 +17,7 @@ import {
   computeElementCost, computeGrandTotal, computeMarginLadder,
   defaultRates, newElementItem, rateKey, suggestedLabourPrefill, computeExternalScopeLines,
   labourResourceRate, taskRowMeta, labourQuantities, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy, computeRowTotal,
-  autoReinforcementByRate, computeElementReinforcementTonnes,
+  autoReinforcementByRate, computeElementReinforcementTonnes, autoLabourQtys,
   computeElementUnitRates, computeProjectUnitRates,
 } from "../src/lib/costing.js";
 import { buildImportFromEstimate, normalizeElementName, geometryForLabel } from "../src/lib/estimateImport.js";
@@ -37,10 +37,10 @@ const check = (name, fn) => {
 console.log("BOMA ESTIMATES — costing engine checks\n");
 
 /* ---------- catalog shape ---------- */
-check("45 element types, 9 categories, 15 sections", () => {
-  assert.equal(ELEMENT_TYPES.length, 45);
-  assert.equal(CATEGORY_ORDER.length, 9);
-  assert.equal(SECTION_ORDER.length, 15);
+check("66 element types, 10 categories, 18 sections", () => {
+  assert.equal(ELEMENT_TYPES.length, 66);
+  assert.equal(CATEGORY_ORDER.length, 10);
+  assert.equal(SECTION_ORDER.length, 18);
   // Stump Footings and Screw Piles are separate, individually selectable types.
   assert.ok(ELEMENT_TYPES.some((t) => t.name === "Stump Footings"), "Stump Footings present");
   assert.ok(ELEMENT_TYPES.some((t) => t.name === "Screw Piles"), "Screw Piles present");
@@ -54,10 +54,10 @@ check("every element type has both a category and a section", () => {
   });
 });
 
-check("13 material categories, 147 products (incl. CONCRETE PUMPING, INSULATION, Bored Piers subcontract, minimum cartage, levy, surcharge, rate-based reo)", () => {
-  assert.equal(FULL_CATALOG.length, 13);
+check("20 material categories, 263 products (incl. CONCRETE PUMPING, INSULATION, Bored Piers subcontract, minimum cartage, levy, surcharge, rate-based reo)", () => {
+  assert.equal(FULL_CATALOG.length, 20);
   const total = FULL_CATALOG.reduce((s, c) => s + c.products.length, 0);
-  assert.equal(total, 147);
+  assert.equal(total, 263);
   const conc = FULL_CATALOG.find((c) => c.key === "CONCRETE");
   assert.ok(conc.products.some((p) => p.name === "Production & transport surcharge" && p.unit === "m3" && p.unitCost === 9.17), "concrete surcharge product seeded at $9.17/m³");
   // Vapour barrier is its own OTHER ACCESSORIES product, distinct from Insulation
@@ -76,8 +76,10 @@ check("13 material categories, 147 products (incl. CONCRETE PUMPING, INSULATION,
   assert.ok(insul.products.some((p) => /Kooltherm/.test(p.name)), "specified insulation products present");
 });
 
-check("10 crew-sheet resource columns (both Pump hr and Pump m3, Formwork crew, General Labour crew, Trucks, no Factory column)", () => {
-  assert.equal(RESOURCE_COLS.length, 10);
+check("13 crew-sheet resource columns (both Pump hr and Pump m3, Formwork crew, General Labour crew, Trucks, steel erection trio, no Factory column)", () => {
+  assert.equal(RESOURCE_COLS.length, 13);
+  ["erector_day", "welder_day", "ewp_day"].forEach((k) =>
+    assert.ok(RESOURCE_COLS.some((r) => r.key === k), `steel erection column ${k} present`));
   assert.ok(!RESOURCE_COLS.some((r) => r.key === "factory_hr"), "Factory labour column removed");
   assert.ok(RESOURCE_COLS.some((r) => r.key === "labourer_day"), "General Labour column present");
   const truck = RESOURCE_COLS.find((r) => r.key === "truck_day");
@@ -1149,6 +1151,121 @@ check("Reo by rate respects a Rates-modal override of the $/tonne", () => {
   const rates = defaultRates();
   rates[REO_RATE_KEY] = { ...rates[REO_RATE_KEY], unitCost: 2100 };
   assert.equal(autoReinforcementByRate(elementWithConcrete(100, { reoRatePerM3: 90 }), rates).total, 9 * 2100);
+});
+
+/* ---------- structural steel ---------- */
+const steelType = (id) => ELEMENT_TYPES.find((t) => t.id === id);
+const UB_KEY = rateKey("STEEL SECTIONS — BEAMS & COLUMNS", "310UB40.4", "m");
+const SHS_KEY = rateKey("STEEL SECTIONS — HOLLOW & ANGLE", "SHS 150x150x6", "m");
+const PORTAL_KEY = rateKey("STEEL FRAMING — PORTALS, TRUSSES & BRACING", "Portal frame — supply & fabricate", "t");
+const SHEET_KEY = rateKey("ROOF & WALL CLADDING", "Trimdek / monoclad 0.48 BMT", "m2");
+const BOLT_KEY = rateKey("STEEL CONNECTIONS & JOINT DETAILS", "Structural bolt M20 8.8/S", "each");
+const WELD_KEY = rateKey("STEEL CONNECTIONS & JOINT DETAILS", "Site weld — 8mm fillet", "m");
+const GALV_KEY = rateKey("STEEL PROTECTIVE TREATMENT", "Hot dip galvanising", "t");
+
+check("Steel element types cover framing, roofing and connections, in ground-up order", () => {
+  const steel = ELEMENT_TYPES.filter((t) => t.category === "STRUCTURAL STEEL");
+  assert.equal(steel.length, 21);
+  assert.deepEqual([...new Set(steel.map((t) => t.section))],
+    ["STEEL FRAMING", "STEEL ROOFING & CLADDING", "STEEL CONNECTIONS"]);
+  steel.forEach((t) => assert.equal(t.labour, "steel", `${t.id} uses the steel task template`));
+  // superstructure sits after the suspended structure, before external works
+  const order = CATEGORY_ORDER;
+  assert.ok(order.indexOf("STRUCTURAL STEEL") > order.indexOf("SUSPENDED STRUCTURE"));
+  assert.ok(order.indexOf("STRUCTURAL STEEL") < order.indexOf("EXTERNAL & LANDSCAPE CONCRETE"));
+});
+
+check("The steel task template is the erection sequence, not the concrete one", () => {
+  const tasks = LABOUR_TEMPLATES.steel;
+  assert.ok(tasks.some((t) => /erect steel/i.test(t)), "has an erection row");
+  assert.ok(tasks.some((t) => /site welding/i.test(t)), "has a welding row");
+  assert.ok(tasks.some((t) => /roof & wall sheeting/i.test(t)), "has a sheeting row");
+  assert.ok(!tasks.some((t) => /pour|finish concrete|washout/i.test(t)), "no concrete rows");
+});
+
+check("Steel sections cost off Total Weight: Qty is metres, unit cost is $/tonne", () => {
+  const rates = defaultRates();
+  const item = newElementItem(steelType("steel_beam"));
+  item.qtys[UB_KEY] = 100;                               // 100 m of 310UB40.4
+  const cost = computeElementCost(item, rates);
+  // 100 m × 40.4 kg/m = 4.04 t × $5,200 = $21,008
+  assert.equal(cost.categoryTotals["STEEL SECTIONS — BEAMS & COLUMNS"], 4.04 * 5200);
+});
+
+check("Section masses are the real AS/NZS designated masses", () => {
+  const beams = FULL_CATALOG.find((c) => c.key === "STEEL SECTIONS — BEAMS & COLUMNS");
+  assert.equal(beams.products.find((p) => p.name === "310UB40.4").unitWeight, 40.4);
+  assert.equal(beams.products.find((p) => p.name === "610UB101").unitWeight, 101.0);
+  assert.equal(beams.products.find((p) => p.name === "250UC72.9").unitWeight, 72.9);
+  const hollow = FULL_CATALOG.find((c) => c.key === "STEEL SECTIONS — HOLLOW & ANGLE");
+  assert.equal(hollow.products.find((p) => p.name === "SHS 150x150x6").unitWeight, 26.6);
+});
+
+check("Connections, welds and treatment cost straight per their own unit", () => {
+  const rates = defaultRates();
+  const item = newElementItem(steelType("steel_moment_connection"));
+  item.qtys[BOLT_KEY] = 40;     // 40 × $4.60
+  item.qtys[WELD_KEY] = 12;     // 12 m × $64
+  item.qtys[GALV_KEY] = 2.5;    // 2.5 t × $1,150
+  const cost = computeElementCost(item, rates);
+  assert.equal(cost.categoryTotals["STEEL CONNECTIONS & JOINT DETAILS"], 40 * 4.6 + 12 * 64);
+  assert.equal(cost.categoryTotals["STEEL PROTECTIVE TREATMENT"], 2.5 * 1150);
+});
+
+check("Erection crew days derive from steel TONNAGE, and book the crane with them", () => {
+  const rates = defaultRates();
+  const item = newElementItem(steelType("steel_column"));
+  item.qtys[UB_KEY] = 200;                               // 200 m × 40.4 = 8.08 t
+  const lq = labourQuantities(item, rates);
+  assert.equal(lq.steelTonnes, 8.08);
+  const erect = item.tasks.find((t) => /erect steel/i.test(t.name));
+  assert.equal(taskRowMeta(erect.name, lq).unit, "t");
+  assert.equal(taskRowMeta(erect.name, lq).autoQty, 8.08);
+  const sug = autoLabourQtys(item, rates)[erect.id];
+  // 8.08 t at 4 t/crew-day = 2.02 crew-days; the row is per-person by
+  // default so the erection column shows 2.02 × 4 men = 8.08 man-days.
+  assert.equal(sug.erector_day, 8.08);
+  assert.equal(sug.crane_day, 2.02, "the crane is booked for the erection days, not the man-days");
+});
+
+check("Fabricated portal frames are already tonnes — counted once, per-item lines are not tonnage", () => {
+  const rates = defaultRates();
+  const item = newElementItem(steelType("portal_frame"));
+  item.qtys[PORTAL_KEY] = 6;                             // 6 t of frame
+  item.qtys[rateKey("STEEL FRAMING — PORTALS, TRUSSES & BRACING", "Knee haunch", "each")] = 8;
+  assert.equal(labourQuantities(item, rates).steelTonnes, 6, "the 8 haunches are not 8 tonnes");
+  assert.equal(computeElementCost(item, rates).categoryTotals["STEEL FRAMING — PORTALS, TRUSSES & BRACING"],
+    6 * 5400 + 8 * 540);
+});
+
+check("Sheeting crew days derive from cladding AREA, and purlins stay manual", () => {
+  const rates = defaultRates();
+  const item = newElementItem(steelType("roof_sheeting"));
+  item.qtys[SHEET_KEY] = 600;
+  const lq = labourQuantities(item, rates);
+  assert.equal(lq.claddingM2, 600);
+  const sheet = item.tasks.find((t) => /roof & wall sheeting/i.test(t.name));
+  assert.equal(taskRowMeta(sheet.name, lq).autoQty, 600);
+  const sug = autoLabourQtys(item, rates);
+  assert.ok(sug[sheet.id] && sug[sheet.id].erector_day > 0, "sheeting books erection crew");
+  const purlins = item.tasks.find((t) => /purlins, girts/i.test(t.name));
+  assert.ok(!sug[purlins.id], "purlins/girts are piece-count work — never auto-filled");
+  const weld = item.tasks.find((t) => /site welding/i.test(t.name));
+  assert.ok(!sug[weld.id], "site welding is never auto-filled either");
+});
+
+check("A steel element with nothing entered still costs $0 (whole catalog stays free)", () => {
+  const rates = defaultRates();
+  assert.equal(computeElementCost(newElementItem(steelType("steel_beam")), rates).total, 0);
+});
+
+check("Steel tonnage does NOT leak into the reinforcement tonnage figure", () => {
+  const rates = defaultRates();
+  const item = newElementItem(steelType("steel_beam"));
+  item.qtys[UB_KEY] = 100;
+  item.qtys[SHS_KEY] = 50;
+  assert.equal(computeElementReinforcementTonnes(item, rates), 0,
+    "structural steel is not reinforcement — it must not book steel-fixing crew days");
 });
 
 console.log(`\n${passed} check(s) passed.`);

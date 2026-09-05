@@ -61,6 +61,13 @@ export const RESOURCE_COLS = [
   { key: "pump_hr", name: "Pump", unit: "hr", rate: 250 },
   { key: "pump_m3", name: "Pump", unit: "m³", rate: 10 },
   { key: "crane_day", name: "Crane", unit: "day", rate: 1600 },
+  // Structural steel erection. These appear on every element's matrix like
+  // every other resource (see CLAUDE.md rule 1 — the whole catalog shows
+  // everywhere and a blank cell costs nothing); they only carry figures on
+  // the steel element types.
+  { key: "erector_day", name: "Steel Erection Crew", unit: "man-day", rate: 720, crew: true, men: 4 },
+  { key: "welder_day", name: "Welder", unit: "man-day", rate: 780, crew: true, men: 1 },
+  { key: "ewp_day", name: "EWP / Scissor Lift", unit: "day", rate: 420 },
 ];
 
 /* ---------- Production rates ----------
@@ -91,6 +98,11 @@ export const PRODUCTION_RATES = [
   // The agitator size the minimum-cartage split assumes — edit here if the
   // supplier runs smaller/larger trucks on a job.
   { key: "truck_load_m3", name: "Concrete truck load size", unit: "m³/load", rate: 8 },
+  // Structural steel erection, tonnes stood per crew-day. Heavily
+  // job-dependent (piece count matters far more than tonnage on light
+  // framing), so it seeds a starting figure rather than a truth — edit it
+  // per job in the Rates modal.
+  { key: "erect_t_crewday", name: "Steel erection — tonnes per crew-day", unit: "t/day", rate: 4 },
 ];
 
 /* ---------- Labour task templates, keyed by the element's `labour` field ---------- */
@@ -109,6 +121,21 @@ const CREW_SHEET_TASKS = [
   "Additional labour / plant",
   "Additional labour / plant",
 ];
+/* The steel sequence has nothing in common with the concrete one — there is
+   no pour, no finish and no washout, and bolt-up, welding and sheeting are
+   each their own day's work. */
+const STEEL_ERECTION_TASKS = [
+  "Site setup / mobilisation",
+  "Set out & survey",
+  "Erect steel frame",
+  "Bolt up, plumb & align",
+  "Site welding",
+  "Purlins, girts & bracing",
+  "Roof & wall sheeting",
+  "Touch-up & make good",
+  "Additional labour / plant",
+];
+
 export const LABOUR_TEMPLATES = {
   excavation: CREW_SHEET_TASKS,
   footing: CREW_SHEET_TASKS,
@@ -116,6 +143,7 @@ export const LABOUR_TEMPLATES = {
   slab_ground: CREW_SHEET_TASKS,
   slab_suspended: CREW_SHEET_TASKS,
   stairs: CREW_SHEET_TASKS,
+  steel: STEEL_ERECTION_TASKS,
 };
 
 /* ---------- Full material catalog ----------
@@ -276,6 +304,133 @@ export const FULL_CATALOG = [
     ["Inspector", "each", null, 130], ["Soil removal", "m3", null, 40], ["Bin Hire", "each", null, 600], ["Sawcutting", "day", null, 450],
     ["Concrete test", "each", null, 241.5], ["Off-site washout fee", "each", null, 400], ["Truck washout fee", "each", null, 10.5],
   ]},
+  // ---------------------------------------------------------------------
+  // STRUCTURAL STEEL
+  //
+  // Unit weights below are the real AS/NZS designated masses (a 310UB40.4 is
+  // 40.4 kg/m by definition), so the tonnage the tool reports is the tonnage
+  // the fabricator will invoice against.
+  //
+  // The section categories are weightBasis: true — Qty is METRES, unitCost is
+  // $/tonne, and computeRowTotal turns one into the other. That is the same
+  // rule PROCESSED BAR follows and the same reason: steel is bought and
+  // fabricated by weight but measured off drawings by length. Everything else
+  // here (purlins, sheeting, connections, treatment) is priced per its own
+  // unit and stays weightBasis: false, exactly like Trench Mesh — several
+  // still carry a unitWeight purely so the UI can show informational tonnage
+  // for crane and transport planning. See CLAUDE.md -> "Costing rules" rule 2
+  // before changing any of these flags.
+  // ---------------------------------------------------------------------
+  { key: "STEEL SECTIONS — BEAMS & COLUMNS", label: "STEEL SECTIONS — BEAMS & COLUMNS (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
+    ["150UB14.0", "m", 14.0, 5200], ["200UB25.4", "m", 25.4, 5200], ["250UB31.4", "m", 31.4, 5200],
+    ["310UB40.4", "m", 40.4, 5200], ["360UB50.7", "m", 50.7, 5200], ["410UB53.7", "m", 53.7, 5200],
+    ["460UB74.6", "m", 74.6, 5200], ["530UB82.0", "m", 82.0, 5200], ["610UB101", "m", 101.0, 5200],
+    ["100UC14.8", "m", 14.8, 5200], ["150UC23.4", "m", 23.4, 5200], ["200UC46.2", "m", 46.2, 5200],
+    ["250UC72.9", "m", 72.9, 5200], ["310UC96.8", "m", 96.8, 5200],
+    ["150PFC17.7", "m", 17.7, 5350], ["200PFC22.9", "m", 22.9, 5350], ["250PFC35.5", "m", 35.5, 5350],
+    ["300PFC40.1", "m", 40.1, 5350], ["380PFC55.2", "m", 55.2, 5350],
+  ]},
+  { key: "STEEL SECTIONS — HOLLOW & ANGLE", label: "STEEL SECTIONS — HOLLOW & ANGLE (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
+    ["SHS 65x65x4", "m", 7.31, 5900], ["SHS 89x89x5", "m", 12.8, 5900], ["SHS 100x100x5", "m", 14.5, 5900],
+    ["SHS 125x125x6", "m", 21.9, 5900], ["SHS 150x150x6", "m", 26.6, 5900], ["SHS 200x200x9", "m", 52.9, 5900],
+    ["RHS 100x50x4", "m", 8.7, 5900], ["RHS 150x50x5", "m", 14.4, 5900], ["RHS 200x100x6", "m", 26.4, 5900],
+    ["RHS 250x150x9", "m", 52.0, 5900],
+    ["CHS 88.9x4.0", "m", 8.38, 6200], ["CHS 114.3x4.8", "m", 13.0, 6200], ["CHS 168.3x5.0", "m", 20.1, 6200],
+    ["CHS 219.1x6.4", "m", 33.6, 6200],
+    ["EA 50x50x5", "m", 3.71, 5500], ["EA 75x75x6", "m", 6.67, 5500], ["EA 100x100x8", "m", 11.8, 5500],
+    ["EA 125x125x10", "m", 18.6, 5500],
+    ["Plate / flat bar", "kg", 1.0, 5.6],
+  ]},
+  { key: "STEEL FRAMING — PORTALS, TRUSSES & BRACING", weightBasis: false, products: [
+    // Fabricated assemblies: priced per tonne of finished frame (Qty is
+    // tonnes, so no weightBasis conversion), or per item where the trade
+    // quotes them that way.
+    ["Portal frame — supply & fabricate", "t", null, 5400],
+    ["Roof truss — supply & fabricate", "t", null, 5800],
+    ["Lattice / space truss — supply & fabricate", "t", null, 6400],
+    ["Rafter / apex haunch", "each", null, 620],
+    ["Knee haunch", "each", null, 540],
+    ["Cross bracing — rod & turnbuckle", "m", 1.58, 46],
+    ["Cross bracing — angle", "m", 6.67, 58],
+    ["Fly brace", "each", null, 42],
+    ["Mezzanine framing — supply & fabricate", "t", null, 5600],
+  ]},
+  { key: "STEEL PURLINS & GIRTS", weightBasis: false, products: [
+    // Lysaght C and Z designated masses; priced per metre the way the
+    // supplier quotes them, not per tonne.
+    ["C15015 purlin/girt", "m", 2.54, 17.4], ["C15019 purlin/girt", "m", 3.14, 20.9],
+    ["C20015 purlin/girt", "m", 3.35, 21.8], ["C20019 purlin/girt", "m", 4.18, 26.4],
+    ["C25019 purlin/girt", "m", 5.13, 31.6], ["C25024 purlin/girt", "m", 6.36, 38.5],
+    ["C30024 purlin/girt", "m", 7.61, 45.2], ["C35030 purlin/girt", "m", 11.0, 63.8],
+    ["Z15015 purlin/girt", "m", 2.54, 17.9], ["Z20015 purlin/girt", "m", 3.35, 22.4],
+    ["Z25019 purlin/girt", "m", 5.13, 32.4], ["Z30024 purlin/girt", "m", 7.61, 46.1],
+    ["Purlin bridging / strut", "m", 1.72, 14.6],
+    ["Purlin cleat", "each", null, 18.5],
+    ["Purlin bolt M12 + nut", "each", null, 2.4],
+  ]},
+  { key: "ROOF & WALL CLADDING", weightBasis: false, products: [
+    ["Corrugated roof sheeting 0.42 BMT", "m2", 4.3, 29.5],
+    ["Corrugated roof sheeting 0.48 BMT", "m2", 4.9, 34.2],
+    ["Trimdek / monoclad 0.42 BMT", "m2", 4.5, 31.8],
+    ["Trimdek / monoclad 0.48 BMT", "m2", 5.1, 36.4],
+    ["Klip-lok concealed-fix 0.48 BMT", "m2", 5.2, 46.8],
+    ["Wall cladding — corrugated 0.42 BMT", "m2", 4.3, 28.6],
+    ["Insulated sandwich panel 50mm", "m2", 9.8, 118],
+    ["Anticon roof blanket R1.3", "m2", null, 12.4],
+    ["Roof safety mesh", "m2", null, 6.8],
+    ["Translucent sheeting", "m2", null, 62],
+    ["Ridge capping", "m", null, 34],
+    ["Barge / gable flashing", "m", null, 31],
+    ["Wall / apron flashing", "m", null, 28],
+    ["Box gutter", "m", null, 96],
+    ["Eaves gutter", "m", null, 44],
+    ["Downpipe", "m", null, 36],
+    ["Rainwater head / sump", "each", null, 185],
+    ["Roof sheeting screws & seals", "m2", null, 3.2],
+    ["Whirlybird / roof vent", "each", null, 240],
+  ]},
+  { key: "STEEL CONNECTIONS & JOINT DETAILS", weightBasis: false, products: [
+    // Priced how a fabricator actually quotes connections: the plate work per
+    // item, the bolts per bolt, and site welding per metre of run at the
+    // specified leg size.
+    ["Base plate — light (up to 12mm)", "each", 14, 165],
+    ["Base plate — medium (16-20mm)", "each", 32, 285],
+    ["Base plate — heavy (25mm+)", "each", 64, 495],
+    ["Cap plate", "each", 11, 140],
+    ["Web side plate / shear cleat", "each", 6, 96],
+    ["Flexible end plate", "each", 9, 128],
+    ["Bolted moment end plate", "each", 38, 420],
+    ["Splice plate set — column", "set", 46, 560],
+    ["Splice plate set — beam", "set", 34, 445],
+    ["Web / load-bearing stiffener", "each", 5, 88],
+    ["Gusset plate — bracing", "each", 12, 155],
+    ["Seating cleat / angle cleat", "each", 4, 72],
+    ["Holding-down bolt cage (4 bolt)", "each", 18, 320],
+    ["HD bolt M20 cast-in", "each", 1.6, 19.5],
+    ["HD bolt M24 cast-in", "each", 2.6, 29],
+    ["Chemical anchor M16", "each", null, 16.5],
+    ["Chemical anchor M20", "each", null, 24],
+    ["Structural bolt M16 8.8/S", "each", null, 3.4],
+    ["Structural bolt M20 8.8/S", "each", null, 4.6],
+    ["Structural bolt M24 8.8/TB", "each", null, 8.9],
+    ["Structural bolt M30 8.8/TB", "each", null, 17.5],
+    ["Site weld — 6mm fillet", "m", null, 46],
+    ["Site weld — 8mm fillet", "m", null, 64],
+    ["Site weld — 10mm fillet", "m", null, 88],
+    ["Site weld — full penetration butt", "m", null, 165],
+    ["Shear stud 19mm — welded", "each", null, 4.8],
+    ["Base plate grout — cementitious", "each", null, 58],
+    ["Shim pack", "each", null, 12],
+    ["Weld inspection / NDT", "each", null, 145],
+  ]},
+  { key: "STEEL PROTECTIVE TREATMENT", weightBasis: false, products: [
+    ["Hot dip galvanising", "t", null, 1150],
+    ["Shop primer", "m2", null, 14.5],
+    ["Two-pack epoxy — shop applied", "m2", null, 38],
+    ["Intumescent fire rating -/60/60", "m2", null, 68],
+    ["Intumescent fire rating -/120/120", "m2", null, 112],
+    ["Site touch-up & make good", "each", null, 26],
+  ]},
   { key: "SUB CONTRACTORS / TEMPORARY WORKS", weightBasis: false, products: [
     ["Excavation (subcontract)", "quote", null, null], ["Formwork (subcontract)", "quote", null, null], ["Steel supply", "quote", null, null], ["Steel fix", "quote", null, null],
     ["Screw Piling", "quote", null, null], ["CFA Piling", "quote", null, null],
@@ -347,6 +502,31 @@ export const ELEMENT_TYPES = [
   // Its own labour template (stepped riser/tread formwork, not a flat soffit — see
   // LABOUR_TEMPLATES.stairs) and its own section, since a staircase isn't really a
   // suspended slab even though it's typically propped/formed the same way.
+  // ---- STRUCTURAL STEEL: the superstructure that lands on the concrete,
+  //      so it sits between the suspended structure and the external works
+  //      in the ground-up order the dropdown and Quote Summary read in. ----
+  { id: "steel_column", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Column", labour: "steel" },
+  { id: "steel_beam", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Beam", labour: "steel" },
+  { id: "portal_frame", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Portal Frame", labour: "steel" },
+  { id: "roof_truss", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Roof Truss", labour: "steel" },
+  { id: "steel_bracing", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Bracing - Roof & Wall", labour: "steel" },
+  { id: "mezzanine_floor", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Mezzanine Floor Framing", labour: "steel" },
+  { id: "composite_floor_deck", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Composite Floor Deck", labour: "steel" },
+  { id: "steel_stair", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Stair & Landing", labour: "steel" },
+  { id: "steel_balustrade", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Handrail & Balustrade", labour: "steel" },
+  { id: "steel_lintel", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Lintel", labour: "steel" },
+  { id: "roof_purlins", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Roof Purlins", labour: "steel" },
+  { id: "wall_girts", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Wall Girts", labour: "steel" },
+  { id: "roof_sheeting", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Roof Sheeting", labour: "steel" },
+  { id: "wall_cladding", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Wall Cladding", labour: "steel" },
+  { id: "roof_flashings", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Flashings & Cappings", labour: "steel" },
+  { id: "roof_drainage", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Gutters & Downpipes", labour: "steel" },
+  { id: "steel_base_connection", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Base Plate & Holding-Down Set", labour: "steel" },
+  { id: "steel_moment_connection", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Moment Connection", labour: "steel" },
+  { id: "steel_shear_connection", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Shear / Cleat Connection", labour: "steel" },
+  { id: "steel_splice", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Column / Beam Splice", labour: "steel" },
+  { id: "steel_protective", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Galvanising & Fire Protection", labour: "steel" },
+
   { id: "staircase", category: "SUSPENDED STRUCTURE", section: "STAIRS", name: "Staircase", labour: "stairs" },
 
   // External & landscape concrete — outside the building envelope.

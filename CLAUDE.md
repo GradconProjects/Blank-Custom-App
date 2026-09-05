@@ -162,6 +162,41 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
    the one place to change — but check every place `GST_RATE` or `* 1.1`
    is used (currently just `computeMarginLadder`).
 
+## Structural steel
+
+The catalog covers structural steel alongside concrete: seven categories
+(`STEEL SECTIONS — BEAMS & COLUMNS`, `— HOLLOW & ANGLE`, `STEEL FRAMING —
+PORTALS, TRUSSES & BRACING`, `STEEL PURLINS & GIRTS`, `ROOF & WALL CLADDING`,
+`STEEL CONNECTIONS & JOINT DETAILS`, `STEEL PROTECTIVE TREATMENT`) and 21
+element types under a `STRUCTURAL STEEL` category, split into STEEL FRAMING /
+STEEL ROOFING & CLADDING / STEEL CONNECTIONS.
+
+Three things about it are easy to get wrong:
+
+1. **The two `STEEL SECTIONS` categories are `weightBasis: true`** — Qty is
+   METRES, `unitCost` is $/tonne, and the unit weights are the real AS/NZS
+   designated masses (a 310UB40.4 *is* 40.4 kg/m). Steel is bought by weight
+   and measured off drawings by length, the same reason PROCESSED BAR works
+   this way. Everything else steel is priced per its own unit.
+
+2. **`computeElementReinforcementTonnes` whitelists the reinforcement
+   categories.** It used to count "any product with a `unitWeight`", which
+   was fine until steel arrived — every UB, purlin and cleat carries a kg/m
+   too, and they were silently counted as reinforcement, booking
+   steel-FIXING crew days for steel that gets erected by crane. Keep the
+   whitelist; don't go back to sniffing `unitWeight`.
+
+3. **Only two steel labour rows auto-fill.** "Erect steel frame" derives crew
+   days from tonnage (`erect_t_crewday`, 4 t/day) and books the crane for the
+   same days — forgetting the crane is the classic way a steel quote comes in
+   short. "Roof & wall sheeting" derives from cladding m². Bolt-up, site
+   welding, purlins/girts and touch-up are piece-count work and stay manual,
+   the same call already made for formwork and excavation.
+
+`LABOUR_TEMPLATES.steel` is its own sequence (erect → bolt up → weld →
+purlins → sheeting), not the concrete crew sheet, and three resource columns
+(`erector_day`, `welder_day`, `ewp_day`) were added for it.
+
 ## How to extend
 
 - **Add a new material product:** add a row to the relevant category's
