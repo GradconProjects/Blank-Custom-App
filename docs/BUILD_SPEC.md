@@ -40,6 +40,8 @@ Build a single-deployable web portal for **BOMA ESTIMATES** (an Australian concr
 ### 2.1 Auth
 - **Trial gate, not accounts.** One hardcoded password `TRIAL_PASSWORD='5120'`; login screen is a single password field plus a 5-dot sessions-left meter. `SESSION_MS`=1h per session, `TRIAL_MAX_SESSIONS`=5, `TRIAL_MAX_MS`=5h — whichever runs out first shows `#screen-locked` ("GET FULL VERSION") permanently. State under localStorage `boma-trial` = `{sessionsUsed, msUsed, current:{startedAt,expiresAt}|null}`; `msUsed` banks finished sessions only, the live one is derived from `startedAt` so closing the tab doesn't pause the clock and a reload doesn't spend a session. A 1s ticker updates the countdown pills (`#trial-pill-dash`, `#trial-pill-app`) and forces the sign-out at zero. Per-browser only — a demo limiter, not a security boundary. Which app was open persists in localStorage `{currentUser, activeApp}`; `restoreSession()` re-enters the last open app on reload. NOT a security boundary — internal tool.
 
+- **Owner key**: `2580` (default; `TRIAL_OWNER_KEY` overrides). Entered via `/?key=…` or by triple-clicking the wordmark, which opens `#owner-modal-backdrop`. Sets a signed `boma_owner` HttpOnly cookie; state `owner` skips the meter entirely and the pill reads "Full access". Works from the lock screen and in fallback mode.
+
 ### 2.2 Dashboard
 - Header: boma logo (base64 PNG), right side: "Trial session N of 5", **Settings** button (gear icon), session countdown pill, End session.
 - Hero: eyebrow "DASHBOARD", h1 "What are you working on?", intro paragraph, wide construction-site photo (base64 JPEG, `dash-hero-art`, hideable via Settings).

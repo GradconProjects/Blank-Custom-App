@@ -178,7 +178,7 @@ footer.note{color:var(--muted);font-size:11px;text-align:center;padding:20px;}
 <body>
 <header class="app">
   <div class="title">
-    <div class="logo">GC</div>
+    <div class="logo">BE</div>
     <div><h1>Element Takeoff Engine</h1><span>Element-driven concrete &amp; reinforcement quantity takeoff — BOMA ESTIMATES</span></div>
   </div>
   <nav class="tabs">
@@ -1011,7 +1011,7 @@ function defaultCoverFor(typeId){
   if(!def) return PROJECT.cover;
   let base=DEFAULT_COVERS[def.calc];
   if(base===undefined) return PROJECT.cover;
-  if(typeof base==="object") return base[def.slabCategory||def.beamCategory||def.kind] ?? PROJECT.cover;
+  if(typeof base==="object") return base[def.slabCategory||def.beamCategory||def.shape||def.kind] ?? PROJECT.cover;
   return base;
 }
 
@@ -1097,6 +1097,14 @@ function mm2_to_m2(v){ return v/1e6; }
 
 /* ============================= ELEMENT TYPE DEFINITIONS ============================= */
 // Library grouped per spec stages
+// Pile Cap is deliberately ONE element type listed in TWO places: under
+// Piles, where an estimator working the piling package expects it, and under
+// Foundations, where it has always lived. Same object, same id, so ticking it
+// in either place is the same tick and there is no way to double-count it.
+// `stage` pins the export's Stage column to Foundations regardless of which
+// list it was reached from.
+const PILE_CAP_ITEM = {id:"pilecap", label:"Pile Cap", calc:"pilecap", stage:"Foundations"};
+
 const LIBRARY = [
  {group:"Earthworks", items:[
    {id:"bulkexc", label:"Bulk Excavation", calc:"generic", kind:"excavation"},
@@ -1104,12 +1112,39 @@ const LIBRARY = [
    {id:"slabtrim", label:"Slab Trim / Cut-to-fall", calc:"generic", kind:"excavation"},
    {id:"backfill", label:"Backfill", calc:"generic", kind:"excavation"},
  ]},
+ {group:"Piles", items:[
+   // Two families, and the difference is not cosmetic — it decides what the
+   // takeoff can honestly report.
+   //
+   // CAST IN PLACE: a hole filled with concrete and a cage. The `pier`
+   // calculator measures the poured volume, the cage and the ligatures.
+   {id:"boredpier", label:"Bored Pier", calc:"pier"},
+   {id:"cfapile", label:"CFA Pile (continuous flight auger)", calc:"pier"},
+   {id:"drivencispile", label:"Driven Cast-In-Situ Pile", calc:"pier"},
+   {id:"minipile", label:"Mini Pile / Micropile", calc:"pier"},
+   //
+   // SUPPLIED AND DRIVEN: manufactured off site, so there is no site pour to
+   // measure — the quantities are piles, lineal metres, and a supply volume
+   // or tonnage from the section. The `pilesupply` calculator carries every
+   // shape (square, octagonal, hexagonal, circular, hollow, H, sheet, screw,
+   // timber); these entries just preselect one.
+   {id:"precastpile", label:"Precast Concrete Pile (square / octagonal / hex)", calc:"pilesupply", shape:"precast_square"},
+   {id:"spunpile", label:"Spun Concrete Pile (hollow circular)", calc:"pilesupply", shape:"spun_hollow"},
+   {id:"steeltubepile", label:"Steel Tube / Pipe Pile", calc:"pilesupply", shape:"steel_tube"},
+   {id:"steelhpile", label:"Steel H / UB Bearing Pile", calc:"pilesupply", shape:"steel_h"},
+   {id:"sheetpile", label:"Sheet Pile Wall", calc:"pilesupply", shape:"sheet"},
+   {id:"screwpile", label:"Screw / Helical Pile", calc:"pilesupply", shape:"screw"},
+   {id:"timberpile", label:"Timber Pile", calc:"pilesupply", shape:"timber"},
+   //
+   // The cap belongs to the piling package as much as to the foundations —
+   // see PILE_CAP_ITEM above; this is the same element, not a copy.
+   PILE_CAP_ITEM,
+ ]},
  {group:"Foundations", items:[
    {id:"stripfooting", label:"Strip Footing", calc:"stripfooting"},
    {id:"padfooting", label:"Pad Footing", calc:"padfooting"},
    {id:"stumpfooting", label:"Stump Footing Pad", calc:"padfooting", kind:"stump"},
-   {id:"boredpier", label:"Bored Pier", calc:"pier"},
-   {id:"pilecap", label:"Pile Cap", calc:"pilecap"},
+   PILE_CAP_ITEM,
    {id:"groundbeam", label:"Ground Beam", calc:"beam", beamCategory:"Ground"},
    {id:"cappingbeam", label:"Capping Beam", calc:"beam", beamCategory:"Ground"},
    {id:"anchorblock", label:"Anchor Block", calc:"padfooting"},
@@ -1162,7 +1197,15 @@ const LIBRARY = [
    {id:"sumppit", label:"Sump Pit (drainage)", calc:"tankbox", kind:"Sump Pit"},
  ]},
 ];
-const LIB_INDEX = {}; LIBRARY.forEach(g=>g.items.forEach(it=>{it.groupName=g.group; LIB_INDEX[it.id]=it;}));
+// An item may appear in more than one group (Pile Cap does). Its Stage in
+// every export must not depend on which list happened to be iterated last,
+// so an explicit `stage` wins and otherwise the FIRST group it appears under
+// sticks. LIB_INDEX keeps the first occurrence for the same reason.
+const LIB_INDEX = {};
+LIBRARY.forEach(g=>g.items.forEach(it=>{
+  if(!it.groupName) it.groupName = it.stage || g.group;
+  if(!LIB_INDEX[it.id]) LIB_INDEX[it.id] = it;
+}));
 
 /* ============================= GENERIC FORM HELPERS ============================= */
 function num(v,d){ v=parseFloat(v); return isNaN(v)? (d===undefined?0:d) : v; }
@@ -1940,6 +1983,191 @@ function computePier(inst,def){
   return {lines,warnings};
 }
 
+/* ---- SUPPLIED / DRIVEN PILES ----
+   Precast, steel, timber and screw piles are SUPPLIED as manufactured units
+   and driven, not poured into a hole. Running them through the bored-pier
+   calculator would invent concrete that never gets batched, so they get
+   their own module: the estimator picks the shape, and the section area (or
+   the mass per metre, for steel) turns the driven length into a real supply
+   quantity.
+
+   Every shape's area formula is the standard one for that section, with the
+   size taken ACROSS FLATS for the polygonal precast sections — that is how
+   pile schedules dimension them. */
+const PILE_SHAPES = [
+  ["precast_square",    "Precast concrete — square",            "concrete"],
+  ["precast_octagonal", "Precast concrete — octagonal",         "concrete"],
+  ["precast_hex",       "Precast concrete — hexagonal",         "concrete"],
+  ["precast_circular",  "Precast concrete — circular (solid)",  "concrete"],
+  ["spun_hollow",       "Spun concrete — circular (hollow)",    "concrete"],
+  ["steel_tube",        "Steel tube / pipe pile",               "steel"],
+  ["steel_h",           "Steel H / UB bearing pile",            "steel"],
+  ["sheet",             "Steel sheet pile (wall)",              "sheet"],
+  ["screw",             "Screw / helical pile",                 "steel"],
+  ["timber",            "Timber pile (round)",                  "timber"],
+];
+const PILE_SHAPE_FAMILY = Object.fromEntries(PILE_SHAPES.map(([k,,fam])=>[k,fam]));
+
+/** Section area in m², from the size fields, for the concrete/timber shapes. */
+function pileSectionArea(d){
+  const mm = num(d.size)/1000, t = num(d.wall)/1000;
+  switch(d.shape){
+    case "precast_square":    return mm*mm;
+    case "precast_octagonal": return 2*(Math.SQRT2-1)*mm*mm;   // across flats
+    case "precast_hex":       return (Math.sqrt(3)/2)*mm*mm;   // across flats
+    case "precast_circular":
+    case "timber":            return Math.PI*mm*mm/4;
+    case "spun_hollow":
+    case "steel_tube":        return t>0 ? Math.PI*(mm*mm-(mm-2*t)*(mm-2*t))/4 : Math.PI*mm*mm/4;
+    default:                  return 0;
+  }
+}
+
+function pileSupplyDefaults(shape){ return {
+  shape: shape || "precast_square", qty:10, size:350, wall:0,
+  lengthEach:12000, cutoff:300, rake:0,
+  massPerM:0, wallLength:20, sheetDepth:6000, massPerM2:0,
+  grade:PROJECT.grade,
+  shoesOn:true, splicesOn:false, spliceQty:0, helicesEach:1,
+  reoOn:false, reoDia:"N20", reoBars:4, notes:""
+};}
+
+function renderPileSupply(inst){
+  const d = inst.data;
+  const fam = PILE_SHAPE_FAMILY[d.shape] || "concrete";
+  const isSheet = d.shape === "sheet";
+  const isScrew = d.shape === "screw";
+  const hollow  = d.shape === "spun_hollow" || d.shape === "steel_tube";
+  const usesMass = fam === "steel";
+
+  let geom = `<div class="grid cols3">
+   ${F("Pile type / shape", selOpts("shape", d.shape, PILE_SHAPES.map(([k,l])=>[k,l])))}
+  </div>
+  ${isSheet ? `<div class="grid cols4">
+     ${F("Wall length (m)", inpNum("wallLength", d.wallLength))}
+     ${F("Sheet depth (mm)", inpNum("sheetDepth", d.sheetDepth))}
+     ${F("Section mass (kg/m² of wall)", inpNum("massPerM2", d.massPerM2))}
+     ${F("Cut-off / trim (mm)", inpNum("cutoff", d.cutoff))}
+   </div>` : `<div class="grid cols4">
+     ${F("Number of piles", inpNum("qty", d.qty))}
+     ${F(isScrew ? "Shaft size (mm)" : "Section size across flats / Ø (mm)", inpNum("size", d.size))}
+     ${hollow ? F("Wall thickness (mm)", inpNum("wall", d.wall)) : ""}
+     ${F("Supplied length each (mm)", inpNum("lengthEach", d.lengthEach))}
+     ${F("Cut-off / stripping each (mm)", inpNum("cutoff", d.cutoff))}
+     ${usesMass ? F("Section mass (kg/m)", inpNum("massPerM", d.massPerM)) : ""}
+     ${isScrew ? F("Helices per pile", inpNum("helicesEach", d.helicesEach)) : ""}
+   </div>`}
+  <div class="grid cols3">
+   ${chk("shoesOn", d.shoesOn, isScrew ? "Include helix / termination plates" : "Include pile shoes / driving caps", "shoesOn")}
+   ${chk("splicesOn", d.splicesOn, "Splices required", "splicesOn")}
+  </div>
+  <div class="subsec ${d.splicesOn?'':'hidden'}" data-show-if="splicesOn">
+   ${F("Number of splices (total)", inpNum("spliceQty", d.spliceQty))}
+  </div>
+  <div class="subsec">${F("Notes", inpText("notes", d.notes))}</div>
+  <div class="tip"><span class="ico">🎓</span><div>These piles are <b>supplied and driven</b>, not cast in a hole — the quantity that matters to a supplier is the number of piles and the total lineal metres. Concrete shapes also report a supply volume from the section area; steel shapes need the section's <b>kg/m</b> (or kg/m² for sheets), which comes off the manufacturer's table. Use <b>Bored Pier</b>, <b>CFA</b> or <b>Driven Cast-In-Situ</b> instead for anything poured on site.</div></div>`;
+
+  const conc = fam === "concrete"
+    ? concSection(d, `<p class='small'>Supply volume = section area × total supplied length. Section area is the standard formula for the chosen shape (polygonal sizes are taken across flats).</p>`)
+    : `<p class="small">No site concrete — this is a ${fam === "timber" ? "timber" : "steel"} pile. Any pile-cap or capping concrete belongs to the Pile Cap element.</p>`;
+
+  const reo = fam === "concrete"
+    ? `${chk("reoOn", d.reoOn, "Take off a reinforcement cage (precast piles are usually supplied reinforced/prestressed)", "reoOn")}
+       <div class="subsec ${d.reoOn?'':'hidden'}" data-show-if="reoOn"><div class="grid cols3">
+        ${F("Bar size", barSizeSel("reoDia", d.reoDia))}${F("Bars per pile", inpNum("reoBars", d.reoBars))}
+       </div><p class="small">Only tick this where the cage is being priced separately. A supplied precast pile normally arrives reinforced and the cage is inside the supplier's rate.</p></div>`
+    : `<p class="small">Reinforcement is inside the supplied section — nothing to take off here.</p>`;
+
+  return { geom, conc, reo, form:`<p class="small">Piles are manufactured off site — no formwork.</p>` };
+}
+
+function computePileSupply(inst, def){
+  const d = inst.data, lines = [], warnings = [];
+  const fam = PILE_SHAPE_FAMILY[d.shape] || "concrete";
+  const shapeLabel = (PILE_SHAPES.find(x => x[0] === d.shape) || [,"Pile"])[1];
+
+  if(d.shape === "sheet"){
+    const area = num(d.wallLength) * (num(d.sheetDepth)/1000);
+    if(area <= 0) warnings.push("Enter a wall length and sheet depth.");
+    lines.push(baseLine(inst, def, {materialGroup:"Piling", material:shapeLabel, spec:d.notes||"",
+      qty:area, unit:"m²", finalQty:area, formula:"wall length × depth"}));
+    const t = area * num(d.massPerM2) / 1000;
+    if(num(d.massPerM2) > 0){
+      lines.push(baseLine(inst, def, {materialGroup:"Steel", material:shapeLabel, spec:`${num(d.massPerM2)} kg/m²`,
+        qty:t, unit:"t", finalQty:t, formula:"wall area × kg/m² ÷ 1000"}));
+    } else warnings.push("Enter the section mass (kg/m² of wall) to get a tonnage.");
+    return {lines, warnings};
+  }
+
+  const qty = num(d.qty);
+  const supplied = qty * num(d.lengthEach)/1000;          // m
+  const cutoff   = qty * num(d.cutoff)/1000;              // m
+  const driven   = Math.max(0, supplied - cutoff);
+  if(qty <= 0 || supplied <= 0) warnings.push("Enter a pile count and a supplied length.");
+
+  lines.push(baseLine(inst, def, {materialGroup:"Piling", material:shapeLabel, spec:d.notes||"",
+    qty:qty, unit:"No.", finalQty:qty, formula:"count"}));
+  lines.push(baseLine(inst, def, {materialGroup:"Piling", material:`${shapeLabel} — supplied length`, spec:`${num(d.lengthEach)}mm each`,
+    qty:supplied, unit:"m", finalQty:supplied, formula:"count × length each"}));
+  if(cutoff > 0){
+    lines.push(baseLine(inst, def, {materialGroup:"Piling", material:`${shapeLabel} — driven length`, spec:`after ${num(d.cutoff)}mm cut-off each`,
+      qty:driven, unit:"m", finalQty:driven, formula:"supplied − cut-off"}));
+  }
+
+  if(fam === "concrete"){
+    const area = pileSectionArea(d);
+    const vol = area * supplied;
+    if(area <= 0) warnings.push("Enter a section size to get a supply volume.");
+    lines.push(baseLine(inst, def, {materialGroup:"Concrete", material:`N${d.grade} concrete (precast supply)`,
+      spec:`${shapeLabel} ${num(d.size)}mm`, qty:vol, unit:"m³",
+      waste:0, finalQty:vol, formula:"section area × supplied length",
+      notes:"supplied item — no site pour, no waste allowance"}));
+    if(d.reoOn && num(d.reoBars) > 0){
+      const len = num(d.reoBars) * supplied;
+      lines.push(baseLine(inst, def, {materialGroup:"Reinforcement", material:d.reoDia, spec:"pile cage",
+        qty:len, unit:"m", waste:PROJECT.reoWaste, finalQty:withWaste(len, PROJECT.reoWaste),
+        formula:"bars per pile × supplied length"}));
+    }
+  } else if(fam === "steel"){
+    if(num(d.massPerM) > 0){
+      const t = supplied * num(d.massPerM) / 1000;
+      lines.push(baseLine(inst, def, {materialGroup:"Steel", material:shapeLabel, spec:`${num(d.massPerM)} kg/m`,
+        qty:t, unit:"t", finalQty:t, formula:"supplied length × kg/m ÷ 1000"}));
+    } else warnings.push("Enter the section mass (kg/m) to get a tonnage.");
+    if(d.shape === "screw" && num(d.helicesEach) > 0){
+      const h = qty * num(d.helicesEach);
+      lines.push(baseLine(inst, def, {materialGroup:"Piling", material:"Helix plates", spec:`${num(d.helicesEach)} per pile`,
+        qty:h, unit:"No.", finalQty:h, formula:"count × helices per pile"}));
+    }
+  }
+
+  if(d.shoesOn && qty > 0){
+    lines.push(baseLine(inst, def, {materialGroup:"Piling", material: d.shape === "screw" ? "Termination plates" : "Pile shoes / driving caps",
+      spec:"", qty:qty, unit:"No.", finalQty:qty, formula:"one per pile"}));
+  }
+  if(d.splicesOn && num(d.spliceQty) > 0){
+    lines.push(baseLine(inst, def, {materialGroup:"Piling", material:"Pile splices", spec:"",
+      qty:num(d.spliceQty), unit:"No.", finalQty:num(d.spliceQty), formula:"manual entry"}));
+  }
+  return {lines, warnings};
+}
+
+function diagPileSupply(inst){
+  const d = inst.data;
+  const shapeLabel = (PILE_SHAPES.find(x => x[0] === d.shape) || [,"Pile"])[1];
+  const isSheet = d.shape === "sheet";
+  // A simple elevation: the pile, its cut-off line, and the section note.
+  const content = isSheet
+    ? `<rect x="40" y="34" width="180" height="90" fill="rgba(232,163,61,0.05)" stroke="${DWG.ink}" stroke-width="1.4"/>
+       ${specLine(130,84,`${d.wallLength||0}m × ${d.sheetDepth||0}mm DEEP`,'middle')}`
+    : `<rect x="112" y="34" width="36" height="96" fill="rgba(232,163,61,0.06)" stroke="${DWG.ink}" stroke-width="1.4"/>
+       <line x1="96" y1="48" x2="164" y2="48" stroke="${DWG.ink}" stroke-width="1" stroke-dasharray="5 3"/>
+       <path d="M112 130 L130 146 L148 130 Z" fill="rgba(232,163,61,0.12)" stroke="${DWG.ink}" stroke-width="1.4"/>
+       ${specLine(130,26,`${d.qty||0} No. @ ${d.size||0}mm`,'middle')}
+       ${specLine(130,162,`${((num(d.lengthEach)||0)/1000).toFixed(1)}m EACH`,'middle')}`;
+  return sheetFrame(inst, shapeLabel, [260, isSheet?150:186], content);
+}
+
 /* ---- PILE CAP ---- */
 function pileCapDefaults(){ return {
   qty:1, shape:"pad", L:1800, W:1800, D:800, cover:PROJECT.cover, grade:PROJECT.grade, oversize:150, blinding:50, blindingMaterial:"concrete", vapourMembrane:false,
@@ -1963,7 +2191,7 @@ function renderPileCap(inst){
    ${F("Quantity",inpNum("qty",d.qty))}${LF(isBeam?"Beam length (mm)":"Length (mm)","L",d.L)}${F(isBeam?"Beam width (mm)":"Width (mm)",inpNum("W",d.W))}${F("Depth (mm)",inpNum("D",d.D))}
    ${coverField(inst)}${F("Excavation oversize (mm/side)",inpNum("oversize",d.oversize))}
   </div>
-  <div class="subsec"><div class="sechead">Linked Bored Piers</div>
+  <div class="subsec"><div class="sechead">Linked Piles / Piers</div>
    <div class="grid cols3">${F("Linked pier element",targetSelect("linkTarget",d.linkTarget,inst.id,'pier'))}${F("Number of piers entering this cap",inpNum("linkedPierCount",d.linkedPierCount))}</div>
    ${pierLinkWarning(inst)}
    ${isBeam?`<div class="tip"><span class="ico">🏗️</span><div>A cap/strap beam usually picks up <b>several different piers</b> along its run, not one repeated group — this box only links one. Use <b>Additional Connections</b> on the Connections tab to add each remaining pier (and any columns that land on the beam) individually, with its own bar count and position — that section exists for exactly this "not a single repeated group" case.</div></div>`:""}
@@ -3705,6 +3933,7 @@ function computeTankbox(inst,def){
 const CALC = {
   pier:{defaults:pierDefaults, render:renderPier, compute:computePier, diagram:diagPier},
   pilecap:{defaults:pileCapDefaults, render:renderPileCap, compute:computePileCap, diagram:diagPileCap},
+  pilesupply:{defaults:pileSupplyDefaults, render:renderPileSupply, compute:computePileSupply, diagram:diagPileSupply},
   stripfooting:{defaults:stripFootingDefaults, render:renderStripFooting, compute:computeStripFooting, diagram:diagStripFooting},
   padfooting:{defaults:padFootingDefaults, render:renderPadFooting, compute:computePadFooting, diagram:diagPadFooting},
   beam:{defaults:beamDefaults, render:renderBeam, compute:computeBeam, diagram:diagBeam},
@@ -3731,7 +3960,7 @@ function diagPier(inst){ let d=inst.data;
    ${dimH(x,x+w,22,`⌀${d.dia||450}`)}
    ${dimV(top,bot,252,`L${d.depth||4100}`)}
    <text x="${x+w+8}" y="${bot-6}" font-size="6.5" font-family="ui-monospace,Menlo,Consolas,monospace" fill="${DWG.bar}" transform="rotate(-90 ${x+w+8} ${bot-6})">CAGE ${d.vBars||8}${d.vDia||'N20'}${d.underream?' · UNDERREAM':''}</text>`;
-  return sheetFrame(inst, "Bored Pier", [300,176], content);
+  return sheetFrame(inst, (LIB_INDEX[inst.typeKey]||{}).label || "Bored Pier", [300,176], content);
 }
 function diagPileCap(inst){ let d=inst.data;
   let L=clampN(d.L,800,4000,2000), W=clampN(d.W,800,4000,2000);
@@ -3885,7 +4114,7 @@ function targetLabelOf(id){ if(!id) return ""; let i=INSTANCES.find(x=>x.id===id
 function addInstance(typeId){
   let def=LIB_INDEX[typeId];
   let calc=CALC[def.calc];
-  let inst={id:uid("EL"), typeKey:typeId, label:def.label+" "+(INSTANCES.filter(i=>i.typeKey===typeId).length+1), data:applyElementPrefs(calc.defaults(def.slabCategory||def.beamCategory||def.kind, def.suspended))};
+  let inst={id:uid("EL"), typeKey:typeId, label:def.label+" "+(INSTANCES.filter(i=>i.typeKey===typeId).length+1), data:applyElementPrefs(calc.defaults(def.slabCategory||def.beamCategory||def.shape||def.kind, def.suspended))};
   if(inst.data.cover!==undefined) inst.data.cover = defaultCoverFor(typeId);
   // Rolled up by default — only an explicit Settings opt-out (false) adds cards expanded.
   if(portalPref("estNewCollapsed")!==false) inst._collapsed = true;
@@ -4490,6 +4719,9 @@ function renderLibrary(){
    </div>`).join('');
   host.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.addEventListener('change',e=>{
     SELECTED_TYPES[e.target.dataset.type]=e.target.checked;
+    // Pile Cap appears under both Piles and Foundations — the same element in
+    // two lists — so redraw to keep its twin checkbox showing the same state.
+    renderLibrary();
     renderAddToolbar();
   }));
 }
@@ -5034,6 +5266,9 @@ const CSV_UNITS = {
 const CSV_TYPE_KEYWORDS = [
   [/pad\s*foot/i,"padfooting"], [/strip\s*foot|footing/i,"stripfooting"],
   [/grout\s*pad|base\s*plate/i,"columnbaseplate"],
+  [/\bcfa\b|continuous\s*flight\s*auger/i,"cfapile"],
+  [/driven\s*cast[\s-]*in[\s-]*situ|dcis\b/i,"drivencispile"],
+  [/mini\s*pile|micro\s*pile/i,"minipile"],
   [/bored\s*pier|caisson|drill(ed)?\s*shaft/i,"boredpier"], [/pile\s*cap/i,"pilecap"],
   [/ground\s*beam/i,"groundbeam"], [/susp(ended)?\s*beam/i,"suspbeam"],
   [/raft/i,"raftslab"], [/waffle/i,"waffleslab"], [/industrial\s*slab/i,"industrialslab"],
@@ -5139,7 +5374,7 @@ function importBluebeamCSV(text){
     }
 
     let def=LIB_INDEX[typeId], calc=CALC[def.calc];
-    let inst={id:uid("EL"), typeKey:typeId, label:def.label+" — CSV: \""+label+"\"", data:calc.defaults(def.slabCategory||def.beamCategory||def.kind, def.suspended)};
+    let inst={id:uid("EL"), typeKey:typeId, label:def.label+" — CSV: \""+label+"\"", data:calc.defaults(def.slabCategory||def.beamCategory||def.shape||def.kind, def.suspended)};
     if(inst.data.cover!==undefined) inst.data.cover=defaultCoverFor(typeId);
     if(!isNaN(count) && count>0 && inst.data.qty!==undefined) inst.data.qty=count;
     inst.data.__csvImport=true;

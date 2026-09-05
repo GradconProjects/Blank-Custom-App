@@ -170,6 +170,26 @@ ok("owner cookie alone keeps the bypass", o2.json.state === "owner");
 let o3 = await call({ body: { ownerKey: "5121" }, ip: "192.0.2.99" });
 ok("a wrong owner key does NOT bypass", o3.json.state !== "owner");
 
+// The key must work on a deployment that hasn't set TRIAL_OWNER_KEY yet,
+// otherwise the owner is locked out of their own demo.
+const savedKey = process.env.TRIAL_OWNER_KEY;
+delete process.env.TRIAL_OWNER_KEY;
+let d1 = await call({ body: { ownerKey: "2580" }, ip: "192.0.2.150" });
+ok("2580 unlocks even with TRIAL_OWNER_KEY unset", d1.json.state === "owner");
+let d2 = await call({ body: { ownerKey: " 2580 " }, ip: "192.0.2.151" });
+ok("...and tolerates stray whitespace around it", d2.json.state === "owner");
+let d3 = await call({ body: { ownerKey: "2581" }, ip: "192.0.2.152" });
+ok("...but a near-miss still does not", d3.json.state !== "owner");
+process.env.TRIAL_OWNER_KEY = savedKey;
+
+// An env var, when set, must WIN over the built-in default.
+process.env.TRIAL_OWNER_KEY = "seteinsteadofdefault";
+let e1 = await call({ body: { ownerKey: "2580" }, ip: "192.0.2.160" });
+ok("a configured TRIAL_OWNER_KEY overrides the default", e1.json.state !== "owner");
+let e2 = await call({ body: { ownerKey: "seteinsteadofdefault" }, ip: "192.0.2.161" });
+ok("...and the configured key works", e2.json.state === "owner");
+process.env.TRIAL_OWNER_KEY = savedKey;
+
 // unconfigured
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 let u = await call();

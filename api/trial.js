@@ -38,9 +38,10 @@
  *                                so this is the only way to reach it)
  *   TRIAL_SECRET                 any long random string — signs the visitor
  *                                cookie and hashes IPs
- *   TRIAL_OWNER_KEY              optional; visiting /?key=<this> marks the
- *                                browser as yours and bypasses the meter
- *                                entirely, so you can always demo it
+ *   TRIAL_OWNER_KEY              optional; the owner key. Defaults to
+ *                                DEFAULT_OWNER_KEY below if unset. Entering
+ *                                it marks the browser as yours and lifts
+ *                                every limit, so you can always demo.
  */
 import crypto from "node:crypto";
 
@@ -55,6 +56,15 @@ const TRIAL_MAX_MS = TRIAL_MAX_SESSIONS * SESSION_MS;
 // person have three goes.
 const MAX_TRIALS_PER_IP = 3;
 const IP_WINDOW_DAYS = 30;
+
+// The owner key, when TRIAL_OWNER_KEY isn't set. It lifts every limit on the
+// browser that enters it — see the owner-bypass block in the handler.
+//
+// A hardcoded fallback is weaker than the env var: anyone who can read this
+// file can read the key. That's fine while the repo is private and this is a
+// portfolio demo, but set TRIAL_OWNER_KEY to something else the moment it
+// isn't.
+const DEFAULT_OWNER_KEY = "2580";
 
 const VISITOR_COOKIE = "boma_v";
 const OWNER_COOKIE = "boma_owner";
@@ -258,10 +268,10 @@ export default async function handler(req, res) {
 
   // --- owner bypass: your own key, so you can always show the thing off ---
   const ownerKey = (req.body || {}).ownerKey;
+  const expectedOwnerKey = env.TRIAL_OWNER_KEY || DEFAULT_OWNER_KEY;
   const isOwner =
-    Boolean(env.TRIAL_OWNER_KEY) &&
-    (safeEqual(cookies[OWNER_COOKIE] || "", sign("owner", secret)) ||
-      (typeof ownerKey === "string" && safeEqual(ownerKey, env.TRIAL_OWNER_KEY)));
+    safeEqual(cookies[OWNER_COOKIE] || "", sign("owner", secret)) ||
+    (typeof ownerKey === "string" && safeEqual(ownerKey.trim(), expectedOwnerKey));
 
   if (isOwner) {
     setCookies.push(cookie(OWNER_COOKIE, sign("owner", secret)));

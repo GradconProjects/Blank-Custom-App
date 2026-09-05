@@ -289,6 +289,14 @@ row instead of a fresh five hours. It's set to 3 rather than 1 because
 offices, universities and mobile carriers share addresses, and turning away
 a genuine second viewer is worse than letting a determined person retry.
 
+**Owner key.** `2580` (or `TRIAL_OWNER_KEY`, which overrides it) lifts every
+limit on the browser that enters it. There are two ways in and neither is
+offered to visitors: `/?key=<key>`, which scrubs itself from the address bar,
+and triple-clicking the wordmark, which opens a small prompt. The prompt is
+reachable from the lock screen too — that is exactly when the owner needs it.
+The real check is server-side; the client-side comparison in the shell only
+runs in fallback mode, where nothing is enforced for anyone anyway.
+
 **Say nothing about the limits.** The meter is enforced, never advertised.
 No screen a visitor sees may state how many sessions or hours they get — not
 the dashboard, not the countdown pill, not the lock screen. The pill is a
