@@ -630,7 +630,7 @@
       <div class="field"><label class="settings-check"><input type="checkbox" id="settings-confirm-deletes" checked> Ask before deleting projects &amp; elements</label></div>
       <div class="field"><label class="settings-check"><input type="checkbox" id="settings-remember-project" checked> Reopen the last project when Quotes loads</label></div>
       <div class="field"><label class="settings-check"><input type="checkbox" id="settings-cards-collapsed" checked> Quotes element cards start collapsed</label></div>
-      <div class="field"><label class="settings-check"><input type="checkbox" id="settings-est-collapsed" checked> New Estimates elements start collapsed</label></div>
+      <div class="field"><label class="settings-check"><input type="checkbox" id="settings-est-collapsed"> New Estimates elements start rolled up</label></div>
       <div class="field">
         <label for="settings-page-orient">PDF / print page orientation</label>
         <select id="settings-page-orient">
@@ -1308,7 +1308,8 @@
     ['settings-confirm-deletes','confirmDeletes',true],
     ['settings-remember-project','quotesRememberProject',true],
     ['settings-cards-collapsed','quotesCardsCollapsed',true],
-    ['settings-est-collapsed','estNewCollapsed',true],
+    // Default OFF: a card you just added stays open so you can type into it.
+    ['settings-est-collapsed','estNewCollapsed',false],
     ['settings-autopublish','estAutoPublish',true]
   ];
 

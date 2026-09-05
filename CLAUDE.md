@@ -186,12 +186,22 @@ list it was reached from, and `LIB_INDEX` keeps the *first* occurrence rather
 than whichever group was iterated last. `renderLibrary()` redraws on every
 tick so the twin checkbox stays in sync.
 
-The starter/dowel chain runs the whole way up: pile → cap → column. Those
-fields live on the **Connections / Dowels** tab, which is the `conns` key a
-calculator's `render()` returns — `renderPileCap` once built that section and
-then forgot to return it, so the bars billed off the defaults with no field
-to edit them. If you add a calculator with connections, check the key is
-actually in the return.
+The starter/dowel chain runs the whole way up and every step is editable:
+pile → cap → column. Those fields live on the **Connections / Dowels** tab,
+which is the `conns` key a calculator's `render()` returns — `renderPileCap`
+once built that section and then forgot to return it, so the bars billed off
+the defaults with no field to edit them. If you add a calculator with
+connections, check the key is actually in the return.
+
+Dowels are entered **once, at the pile**, and name the cap or capping beam
+they run into (`targetSelect` takes an array of calcs, so a pile offers both
+`pilecap` and `beam` targets). Counting them on the pile is what stops the
+cap double-counting them.
+
+New workspace cards open **expanded**. They used to roll up the instant they
+appeared, which hid the very fields you added the element to fill in; the
+`estNewCollapsed` preference now has to be explicitly turned ON to get the
+old behaviour, and "Roll up all elements" is unchanged.
 
 ## Structural steel
 

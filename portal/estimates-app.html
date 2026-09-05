@@ -2037,7 +2037,12 @@ function pileSupplyDefaults(shape){ return {
   massPerM:0, wallLength:20, sheetDepth:6000, massPerM2:0,
   grade:PROJECT.grade,
   shoesOn:true, splicesOn:false, spliceQty:0, helicesEach:1,
-  reoOn:false, reoDia:"N20", reoBars:4, notes:""
+  reoOn:false, reoDia:"N20", reoBars:4, notes:"",
+  // Dowels out of the pile head into the cap or capping beam above. A driven
+  // pile still has to be tied into whatever caps it, so this carries the same
+  // detailing the bored pier has — see renderPileSupply's `conns`.
+  starters:true, connTarget:"", connQty:4, connDia:"N20", connEmbed:600, connProj:900,
+  connHook:"straight", connLap:0, connCoupler:false
 };}
 
 function renderPileSupply(inst){
@@ -2086,7 +2091,22 @@ function renderPileSupply(inst){
        </div><p class="small">Only tick this where the cage is being priced separately. A supplied precast pile normally arrives reinforced and the cage is inside the supplier's rate.</p></div>`
     : `<p class="small">Reinforcement is inside the supplied section — nothing to take off here.</p>`;
 
-  return { geom, conc, reo, form:`<p class="small">Piles are manufactured off site — no formwork.</p>` };
+  const conns = `${chk("starters", d.starters, "Starter bars / dowels up (into the pile cap or capping beam above)", "starters")}
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   <div class="grid cols4">
+    ${F("Connects to (pile cap / capping beam)", targetSelect("connTarget", d.connTarget, inst.id, ["pilecap","beam"]))}
+    ${F("Bars per pile", inpNum("connQty", d.connQty))}
+    ${F("Diameter", barSizeSel("connDia", d.connDia))}
+    ${F("Embedment into pile (mm)", inpNum("connEmbed", d.connEmbed))}
+    ${F("Projection into cap (mm)", inpNum("connProj", d.connProj))}
+    ${F("Hook type", anchorSel("connHook", d.connHook))}
+    ${F("Lap (mm, 0 = none)", inpNum("connLap", d.connLap))}
+    ${chk("connCoupler", d.connCoupler, "Coupler")}
+   </div>
+   <div class="tip"><span class="ico">🎓</span><div>Same rule as a bored pier: enter the dowels <b>once, here at the pile</b>, and pick the cap or capping beam they run into. They are counted on this element, so the cap does not double them up. On a precast pile these are usually cast into the head or drilled and chemically anchored after the pile is cut down — the embedment field is what tells them apart.</div></div>
+  </div>`;
+
+  return { geom, conc, reo, conns, form:`<p class="small">Piles are manufactured off site — no formwork.</p>` };
 }
 
 function computePileSupply(inst, def){
@@ -2156,6 +2176,22 @@ function computePileSupply(inst, def){
   if(d.splicesOn && num(d.spliceQty) > 0){
     lines.push(baseLine(inst, def, {materialGroup:"Piling", material:"Pile splices", spec:"",
       qty:num(d.spliceQty), unit:"No.", finalQty:num(d.spliceQty), formula:"manual entry"}));
+  }
+
+  // Dowels into the cap above — same formula the bored pier uses, so a
+  // precast pile and a bored pier detailed identically give the same steel.
+  if(d.starters && qty > 0){
+    const dia = barDiaOf(d.connDia);
+    const each = (num(d.connEmbed) + num(d.connProj) + anchorLen(d.connHook, dia, 0) + num(d.connLap)) / 1000;
+    const totLen = num(d.connQty) * qty * each;
+    if(totLen > 0){
+      const targetLabel = targetLabelOf(d.connTarget);
+      lines.push(baseLine(inst, def, {materialGroup:"Connections", material:d.connDia,
+        spec:"Starter bars → " + (targetLabel || "(unlinked)"),
+        qty:totLen, unit:"m", waste:PROJECT.reoWaste, finalQty:withWaste(totLen, PROJECT.reoWaste),
+        formula:"bars per pile × piles × (embed + proj + hook + lap)",
+        linkedElement:targetLabel || "", notes:`${fmt(totLen * massPerM(dia), 1)} kg`}));
+    }
   }
   return {lines, warnings};
 }
@@ -4112,11 +4148,13 @@ function diagGeneric(inst){ let d=inst.data;
 function clampN(v,lo,hi,fb){ v=num(v); return (v>0)? Math.min(hi,Math.max(lo,v)) : fb; }
 
 /* ============================= INSTANCE MGMT ============================= */
+/** filterCalc: a calc name, an ARRAY of calc names, or omitted for all. */
 function targetSelect(field,val,selfId,filterCalc){
+  let allow = filterCalc==null ? null : (Array.isArray(filterCalc)? filterCalc : [filterCalc]);
   let opts=[["","— none —"]];
   INSTANCES.filter(i=>i.id!==selfId).forEach(i=>{
     let def=LIB_INDEX[i.typeKey];
-    if(filterCalc && def.calc!==filterCalc) return;
+    if(allow && allow.indexOf(def.calc)===-1) return;
     opts.push([i.id, i.label]);
   });
   return selOpts(field,val,opts);
@@ -4128,8 +4166,13 @@ function addInstance(typeId){
   let calc=CALC[def.calc];
   let inst={id:uid("EL"), typeKey:typeId, label:def.label+" "+(INSTANCES.filter(i=>i.typeKey===typeId).length+1), data:applyElementPrefs(calc.defaults(def.slabCategory||def.beamCategory||def.shape||def.kind, def.suspended))};
   if(inst.data.cover!==undefined) inst.data.cover = defaultCoverFor(typeId);
-  // Rolled up by default — only an explicit Settings opt-out (false) adds cards expanded.
-  if(portalPref("estNewCollapsed")!==false) inst._collapsed = true;
+  // A card you just added stays OPEN. Rolling it up the instant it appears
+  // hides the very fields you added it to fill in, and the previous default
+  // did exactly that — you had to expand every new element by hand before
+  // you could type a single dimension. Anyone who prefers the rolled-up
+  // workspace can still opt in from Settings (estNewCollapsed), and the
+  // "Roll up all elements" button is untouched.
+  if(portalPref("estNewCollapsed") === true) inst._collapsed = true;
   INSTANCES.push(inst);
   renderWorkspace();
   computeAllAndRefresh();
