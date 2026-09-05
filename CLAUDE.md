@@ -186,12 +186,28 @@ selects the family and the family selects the calculator:
 comes in. Both selects carry `data-rerender` because changing either changes
 which fields the card shows — a show/hide toggle isn't enough.
 
-**The Pile Cap tab** (`pilecap`, in `TABS` right after Reinforcement) measures
-the cap or capping beam on the pile element itself, for the common case where
-the cap belongs to one pile group. It delegates to `computePileCap` with the
-nested `data.cap` object rather than reimplementing it, so an integrated cap
-and a standalone one can never give different steel. Its fields bind through
-dotted paths (`cap.L`, `cap.botXDia`) — `getPath`/`setPath` handle those.
+**The Pile Cap tab** (`pilecap`, in `TABS` right after Reinforcement) takes
+the caps off WITH the piles, which is how a piling package is usually priced.
+`cap.mode` is caps / beam / **both** — "both" needs two sets of dimensions
+(the pads and the beam are different members), so the beam lives in a nested
+`cap.beam`. Fields bind through dotted paths (`cap.L`, `cap.beam.botXDia`) —
+`getPath`/`setPath` handle those.
+
+**The cap count is derived, not typed.** `pileCapCount` is
+`ceil(pileQty / cap.pilesPerCap)`, so changing the pile count changes the
+caps — that coupling is the whole reason for taking them off here. There is
+deliberately no cap Quantity field.
+
+It delegates to `computePileCap` (once per mode, with `qty` and `shape`
+overridden) rather than reimplementing it, so an integrated cap and a
+standalone one can never give different steel. The tab carries the full cap:
+both mats, side/face bars, column starters, formwork faces, blinding and
+vapour membrane, and excavation oversize.
+
+Watch the default merge in `pilesDefaults`: `pileSupplyDefaults()` must come
+BEFORE `pierDefaults()`, because the element opens on a cast-in-situ pile and
+the two families share keys (`qty`, `cover`, `grade`, the starter set). With
+the order reversed a new card opened on 10 piles instead of 1.
 
 **Pile Cap and Capping Beam remain their own Foundations element types**, for
 caps picked up by several pile groups or scheduled separately.

@@ -2045,45 +2045,115 @@ function pilesDefaults(){
   // grade, and the whole starter set) mean the same thing in each, so a type
   // switch keeps everything the estimator already typed.
   return Object.assign({ pileType:"bored", section:"circular", sectionDesc:"" },
-    pierDefaults(), pileSupplyDefaults(),
-    { cap: Object.assign({ on:false, kind:"pilecap" }, pileCapDefaults()) });
+    // Order matters: the element opens on a cast-in-situ pile, so where the
+    // two families share a key (qty, cover, grade, the starter set) the pier
+    // defaults have to win. With the supplied defaults last, a new card
+    // opened on "10 piles" instead of 1.
+    pileSupplyDefaults(), pierDefaults(),
+    { cap: Object.assign({ on:false, mode:"caps", pilesPerCap:1, beamQty:1 },
+        pileCapDefaults(),
+        // "Both" needs a second set of dimensions: the pads and the beam are
+        // different members, so they cannot share L/W/D.
+        { beam: Object.assign(pileCapDefaults(), { shape:"beam", L:6000, W:600, D:700 }) }) });
 }
 
-/* -- the Pile Cap tab: the cap or capping beam this pile group runs into -- */
+/* -- the Pile Cap tab --------------------------------------------------
+   Takes the caps off WITH the piles, which is how a piling package is
+   usually priced: you know the pile count, so you know the cap count. The
+   standalone Pile Cap / Capping Beam elements stay in the Foundations list
+   for caps that don't belong to one pile group. */
+
+/** Caps implied by the pile count — the estimator sets piles-per-cap. */
+function pileCapCount(d){
+  const per = Math.max(1, Math.round(num(d.cap && d.cap.pilesPerCap, 1) || 1));
+  return Math.max(1, Math.ceil(Math.max(1, num(d.qty, 1)) / per));
+}
+
 function renderPilesCapTab(inst){
-  const c = inst.data.cap || {};
-  const isBeam = c.kind === "beam";
-  return `${chk("cap.on", c.on, "Measure the pile cap / capping beam on this element", "capOn")}
+  const d = inst.data, c = d.cap || {};
+  const mode = c.mode || "caps";
+  const wantCaps = mode === "caps" || mode === "both";
+  const wantBeam = mode === "beam" || mode === "both";
+  const caps = pileCapCount(d), piles = Math.max(1, num(d.qty, 1)), per = Math.max(1, Math.round(num(c.pilesPerCap, 1) || 1));
+  const bm = c.beam || {};
+  const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+
+  const mat = (pfx, label, xOn, xDia, xSp, xLap, yOn, yDia, ySp, yLap) => `
+   <div class="sechead">${label}</div>
+   <div class="grid cols4">
+    ${chk(pfx+xOn, c[xOn], "Bottom X bars".replace("Bottom", label.split(" ")[0]).replace("X", "X"))}${F("Dia", barSizeSel(pfx+xDia, c[xDia]))}${F("Spacing (mm)", inpNum(pfx+xSp, c[xSp]))}${chk(pfx+xLap, c[xLap], "Lap")}
+    ${chk(pfx+yOn, c[yOn], label.split(" ")[0]+" Y bars")}${F("Dia", barSizeSel(pfx+yDia, c[yDia]))}${F("Spacing (mm)", inpNum(pfx+ySp, c[ySp]))}${chk(pfx+yLap, c[yLap], "Lap")}
+   </div>`;
+
+  return `${chk("cap.on", c.on, "Take the pile caps / capping beams off with these piles", "capOn")}
   <div class="subsec ${c.on?'':'hidden'}" data-show-if="capOn">
    <div class="grid cols3">
-    ${F("Cap type", selOpts("cap.kind", c.kind, [["pilecap","Pile cap (one group of piles)"],["beam","Capping beam (a row of piles)"]], true))}
-    ${F("Quantity", inpNum("cap.qty", c.qty))}
-    ${F("Concrete grade (MPa)", inpNum("cap.grade", c.grade))}
+    ${F("What caps these piles", selOpts("cap.mode", mode, [
+        ["caps","Pile caps (a pad over each pile group)"],
+        ["beam","Capping beam (continuous over a line of piles)"],
+        ["both","Both — caps and a capping beam"]], true))}
+    ${wantCaps ? F("Piles per cap", inpNumR("cap.pilesPerCap", c.pilesPerCap)) : ""}
+    ${wantBeam ? F("Number of capping beams", inpNumR("cap.beamQty", c.beamQty)) : ""}
    </div>
+
+   ${wantCaps ? `<div class="grid cols4">
+     ${F("Cap length (mm)", inpNum("cap.L", c.L))}${F("Cap width (mm)", inpNum("cap.W", c.W))}
+     ${F("Cap depth (mm)", inpNum("cap.D", c.D))}${F("Cover (mm)", inpNum("cap.cover", c.cover))}
+     ${F("Concrete grade (N)", inpNum("cap.grade", c.grade))}${F("Excavation oversize (mm/side)", inpNum("cap.oversize", c.oversize))}
+    </div>
+    <p class="small">${plural(caps,"cap","caps")} from ${plural(piles,"pile","piles")}${per>1?` at ${per} per cap`:""} — concrete is caps × L × W × D, and the bar mats run each way less cover, the same maths the standalone Pile Cap element uses.</p>` : ""}
+
+   ${wantBeam ? `<div class="sechead">Capping beam</div>
+    <div class="grid cols4">
+     ${F("Beam length (mm)", inpNum("cap.beam.L", bm.L))}${F("Beam width (mm)", inpNum("cap.beam.W", bm.W))}
+     ${F("Beam depth (mm)", inpNum("cap.beam.D", bm.D))}${F("Cover (mm)", inpNum("cap.beam.cover", bm.cover))}
+     ${F("Concrete grade (N)", inpNum("cap.beam.grade", bm.grade))}${F("Excavation oversize (mm/side)", inpNum("cap.beam.oversize", bm.oversize))}
+    </div>
+    <div class="grid cols4">
+     ${chk("cap.beam.botX", bm.botX, "Bottom bars")}${F("Dia", barSizeSel("cap.beam.botXDia", bm.botXDia))}${F("Spacing (mm)", inpNum("cap.beam.botXSpacing", bm.botXSpacing))}${chk("cap.beam.botXLap", bm.botXLap, "Lap")}
+     ${chk("cap.beam.topX", bm.topX, "Top bars")}${F("Dia", barSizeSel("cap.beam.topXDia", bm.topXDia))}${F("Spacing (mm)", inpNum("cap.beam.topXSpacing", bm.topXSpacing))}${chk("cap.beam.topXLap", bm.topXLap, "Lap")}
+     ${chk("cap.beam.sideBars", bm.sideBars, "Side bars / links")}${F("Dia", barSizeSel("cap.beam.sideDia", bm.sideDia))}${F("Spacing (mm)", inpNum("cap.beam.sideSpacing", bm.sideSpacing))}${chk("cap.beam.sideLap", bm.sideLap, "Lap")}
+    </div>` : ""}
+
+   ${wantCaps ? `<div class="sechead">Bottom mat</div>
+    <div class="grid cols4">
+     ${chk("cap.botX", c.botX, "Bottom X bars")}${F("Dia", barSizeSel("cap.botXDia", c.botXDia))}${F("Spacing (mm)", inpNum("cap.botXSpacing", c.botXSpacing))}${chk("cap.botXLap", c.botXLap, "Lap")}
+     ${chk("cap.botY", c.botY, "Bottom Y bars")}${F("Dia", barSizeSel("cap.botYDia", c.botYDia))}${F("Spacing (mm)", inpNum("cap.botYSpacing", c.botYSpacing))}${chk("cap.botYLap", c.botYLap, "Lap")}
+    </div>
+    <div class="sechead">Top mat</div>
+    <div class="grid cols4">
+     ${chk("cap.topX", c.topX, "Top X bars")}${F("Dia", barSizeSel("cap.topXDia", c.topXDia))}${F("Spacing (mm)", inpNum("cap.topXSpacing", c.topXSpacing))}${chk("cap.topXLap", c.topXLap, "Lap")}
+     ${chk("cap.topY", c.topY, "Top Y bars")}${F("Dia", barSizeSel("cap.topYDia", c.topYDia))}${F("Spacing (mm)", inpNum("cap.topYSpacing", c.topYSpacing))}${chk("cap.topYLap", c.topYLap, "Lap")}
+    </div>
+    <div class="sechead">Side bars</div>
+    <div class="grid cols4">
+     ${chk("cap.sideBars", c.sideBars, "Side / face bars (deep caps)")}${F("Dia", barSizeSel("cap.sideDia", c.sideDia))}${F("Spacing (mm)", inpNum("cap.sideSpacing", c.sideSpacing))}${chk("cap.sideLap", c.sideLap, "Lap")}
+    </div>` : ""}
+
+   <div class="sechead">Starters &amp; dowels</div>
    <div class="grid cols4">
-    ${F(isBeam ? "Beam length (mm)" : "Length (mm)", inpNum("cap.L", c.L))}
-    ${F(isBeam ? "Beam width (mm)" : "Width (mm)", inpNum("cap.W", c.W))}
-    ${F("Depth (mm)", inpNum("cap.D", c.D))}
-    ${F("Cover (mm)", inpNum("cap.cover", c.cover))}
-   </div>
-   <div class="sechead">Cap reinforcement</div>
-   <div class="grid cols4">
-    ${chk("cap.botX", c.botX, "Bottom X bars")}${F("Dia", barSizeSel("cap.botXDia", c.botXDia))}${F("Spacing (mm)", inpNum("cap.botXSpacing", c.botXSpacing))}${chk("cap.botXLap", c.botXLap, "Lap")}
-    ${chk("cap.botY", c.botY, "Bottom Y bars")}${F("Dia", barSizeSel("cap.botYDia", c.botYDia))}${F("Spacing (mm)", inpNum("cap.botYSpacing", c.botYSpacing))}${chk("cap.botYLap", c.botYLap, "Lap")}
-    ${chk("cap.topX", c.topX, "Top X bars")}${F("Dia", barSizeSel("cap.topXDia", c.topXDia))}${F("Spacing (mm)", inpNum("cap.topXSpacing", c.topXSpacing))}${chk("cap.topXLap", c.topXLap, "Lap")}
-    ${chk("cap.topY", c.topY, "Top Y bars")}${F("Dia", barSizeSel("cap.topYDia", c.topYDia))}${F("Spacing (mm)", inpNum("cap.topYSpacing", c.topYSpacing))}${chk("cap.topYLap", c.topYLap, "Lap")}
-   </div>
-   <div class="sechead">Starters out of the cap (into the column above)</div>
-   <div class="grid cols4">
-    ${chk("cap.colStarters", c.colStarters, "Column starters")}
-    ${F("Quantity", inpNum("cap.colQty", c.colQty))}
+    ${chk("cap.colStarters", c.colStarters, "Column starters out of the cap")}
+    ${F("Quantity per cap", inpNum("cap.colQty", c.colQty))}
     ${F("Diameter", barSizeSel("cap.colDia", c.colDia))}
     ${F("Embedment into cap (mm)", inpNum("cap.colEmbed", c.colEmbed))}
     ${F("Projection into column (mm)", inpNum("cap.colProj", c.colProj))}
     ${F("Hook type", anchorSel("cap.colHook", c.colHook))}
     ${F("Lap (mm, 0 = none)", inpNum("cap.colLap", c.colLap))}
    </div>
-   <div class="tip"><span class="ico">🎓</span><div>This measures the cap <b>on this element</b>, which is the quick way when the cap belongs to this pile group and nothing else. For a cap picked up by several different pile groups — or one you want to schedule on its own — leave this off and add the standalone <b>Pile Cap</b> or <b>Capping Beam</b> element instead; both are still in the Foundations list. The dowels UP from the piles into this cap live on the Connections / Dowels tab, entered once at the pile so the cap never doubles them.</div></div>
+   <p class="small">Dowels UP from the piles into this cap live on the <b>Connections / Dowels</b> tab — entered once at the pile so the cap never doubles them.</p>
+
+   <div class="sechead">Formwork, blinding &amp; excavation</div>
+   <div class="grid cols4">
+    ${chk("cap.formA", c.formA, "Form side A")}${chk("cap.formB", c.formB, "Form side B")}
+    ${chk("cap.formC", c.formC, "Form side C")}${chk("cap.formD", c.formD, "Form side D")}
+   </div>
+   <div class="grid cols3">
+    ${F("Blinding thickness (mm)", inpNum("cap.blinding", c.blinding))}
+    ${F("Blinding material", selOpts("cap.blindingMaterial", c.blindingMaterial, [["concrete","Blinding concrete"],["crushedrock","Crushed rock"],["sand","Sand"],["none","None"]]))}
+    ${chk("cap.vapourMembrane", c.vapourMembrane, "Vapour membrane under cap")}
+   </div>
+
+   <div class="tip"><span class="ico">🎓</span><div>Taking the caps off here is the quick way when every cap belongs to one pile group — set <b>piles per cap</b> and the count follows the pile count, so changing the piles changes the caps. For a cap picked up by several different pile groups, or one you want scheduled on its own, leave this off and add the standalone <b>Pile Cap</b> or <b>Capping Beam</b> element instead; both are still in the Foundations list.</div></div>
   </div>`;
 }
 
@@ -2114,16 +2184,30 @@ function computePiles(inst, def){
   const cast = pileFamily(d) === PILE_FAMILY_CAST;
   const out = cast ? computePier(inst, def) : computePileSupply(inst, def);
 
-  // The cap, when it is being measured here rather than as its own element.
+  // The caps, when they're being taken off here rather than as their own
+  // elements. Delegated to the pile cap calculator rather than
+  // reimplemented, so an integrated cap and a standalone one can never give
+  // different steel.
   const c = d.cap;
   if(c && c.on){
-    // Delegate to the pile cap calculator rather than reimplementing it, so
-    // an integrated cap and a standalone one can never give different steel.
-    const capInst = { id: inst.id, label: inst.label + " — cap", data: c };
-    const capDef = { groupName: def.groupName, label: c.kind === "beam" ? "Capping Beam" : "Pile Cap", calc: "pilecap" };
-    const capOut = computePileCap(capInst, capDef);
-    (capOut.lines || []).forEach((l) => { l.category = capDef.label; out.lines.push(l); });
-    (capOut.warnings || []).forEach((w) => out.warnings.push(w));
+    const mode = c.mode || "caps";
+    const run = (data, label, qty, shape) => {
+      const capData = Object.assign({}, data, { qty: qty, shape: shape });
+      const capDef = { groupName: def.groupName, label: label, calc: "pilecap" };
+      const r = computePileCap({ id: inst.id, label: inst.label + " — " + label.toLowerCase(), data: capData }, capDef);
+      (r.lines || []).forEach((l) => { l.category = label; out.lines.push(l); });
+      (r.warnings || []).forEach((w) => out.warnings.push(w));
+    };
+
+    if(mode === "caps" || mode === "both"){
+      // Count follows the piles: change the pile count and the caps follow,
+      // which is the whole reason for taking them off on this element.
+      run(c, "Pile Cap", pileCapCount(d), "pad");
+    }
+    if(mode === "beam" || mode === "both"){
+      const bm = c.beam || c;
+      run(bm, "Capping Beam", Math.max(1, num(c.beamQty, 1)), "beam");
+    }
   }
   return out;
 }
