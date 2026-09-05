@@ -206,6 +206,51 @@ export function autoEnvironmentLevy(item, rates) {
 }
 
 /** Creates a fresh quote line item for the given element type. */
+const REO_RATE_PRODUCT_MATCH = /reinforcement by rate/i;
+
+/**
+ * REINFORCEMENT BY RATE — kg of steel per m³ of concrete.
+ *
+ * Early in a job nobody has a bar schedule, but everyone has a rule of thumb:
+ * a suspended slab runs ~90 kg/m³, columns ~150. This lets an estimator set
+ * that rate on the element (`item.reoRatePerM3`) and have the tonnage fall
+ * out of the volume already entered, instead of taking off bars they don't
+ * have drawings for yet.
+ *
+ * It is OFF unless the element carries a rate — no rate, no row, no cost. A
+ * default rate here would silently add reinforcement to every existing quote,
+ * which is precisely the kind of quiet wrong number the rules in CLAUDE.md
+ * exist to prevent.
+ *
+ * Same manual-override contract as the concrete delivery fees: typing a Qty
+ * on the "Reinforcement by rate" row takes that row fully manual (the
+ * estimator has a real tonnage and wants it billed exactly), and this returns
+ * null so the ordinary computeRowTotal path prices it instead.
+ *
+ * Volume is pouredVolume(item) — the same figure the delivery fees use, so
+ * additives and the fee rows never inflate it.
+ *
+ * Returns { key, ratePerM3, volume, tonnes, unitCost, total } or null.
+ */
+export function autoReinforcementByRate(item, rates) {
+  const ratePerM3 = Number(item.reoRatePerM3) || 0;
+  if (ratePerM3 <= 0) return null;
+
+  const cat = FULL_CATALOG.find((c) => c.key === "PROCESSED BAR");
+  const product = cat && cat.products.find((p) => REO_RATE_PRODUCT_MATCH.test(p.name));
+  if (!product) return null;
+
+  const key = rateKey(cat.key, product.name, product.unit);
+  if ((Number(item.qtys[key]) || 0) > 0) return null; // typed = manual
+
+  const volume = pouredVolume(item);
+  if (volume <= 0) return null;
+
+  const rate = lookupRate(rates, key, { unitCost: product.unitCost ?? 0 });
+  const tonnes = (volume * ratePerM3) / 1000;
+  return { key, ratePerM3, volume, tonnes, unitCost: rate.unitCost, total: tonnes * rate.unitCost };
+}
+
 export function newElementItem(type) {
   return {
     id: uid(),
@@ -286,6 +331,15 @@ export function computeElementCost(item, rates) {
       materialsTotal += fee.total;
     });
 
+  // Reinforcement priced off a kg/m³ rate rather than a bar schedule. Same
+  // shape as the fees above — dormant unless the element carries a rate, and
+  // stood down the moment a Qty is typed on its row.
+  const reoByRate = autoReinforcementByRate(item, rates);
+  if (reoByRate) {
+    categoryTotals["PROCESSED BAR"] = (categoryTotals["PROCESSED BAR"] || 0) + reoByRate.total;
+    materialsTotal += reoByRate.total;
+  }
+
   // Seamless labour: with labourAuto on, empty matrix cells are driven live
   // by the rate-of-work engine (autoLabourQtys) — quantities entered above
   // flow straight into crew days at the rates-library production rates. A
@@ -363,6 +417,19 @@ export function computeElementReinforcementTonnes(item, rates) {
       totalKg += units * rate.unitWeight;
     });
   });
+  // Rate-based reinforcement has no unitWeight for the loop above to scan —
+  // its Qty is already tonnes — so it's added here instead. Both routes
+  // count: the auto rate, and a tonnage typed straight onto the row. Without
+  // this a rate-priced element would report zero steel and earn no
+  // steel-fixing crew days.
+  const reoCat = FULL_CATALOG.find((c) => c.key === "PROCESSED BAR");
+  const reoProduct = reoCat && reoCat.products.find((p) => REO_RATE_PRODUCT_MATCH.test(p.name));
+  if (reoProduct) {
+    const typed = Number(item.qtys[rateKey(reoCat.key, reoProduct.name, reoProduct.unit)]) || 0;
+    if (typed > 0) totalKg += typed * 1000;
+  }
+  const byRate = autoReinforcementByRate(item, rates);
+  if (byRate) totalKg += byRate.tonnes * 1000;
   return totalKg / 1000;
 }
 

@@ -178,6 +178,15 @@ export const FULL_CATALOG = [
   { key: "PROCESSED BAR", label: "PROCESSED BAR (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
     ["N10", "m", 0.632, 1925], ["N12", "m", 0.91, 1925], ["N16", "m", 1.6, 1925], ["N20", "m", 2.532, 1925], ["N24", "m", 3.639, 1925],
     ["N28", "m", 4.951, 1925], ["N32", "m", 6.468, 1925], ["N36", "m", 8.19, 1925], ["N40", "m", 10.107, 1925],
+    // Rate-based reinforcement: instead of taking off every bar, the estimator
+    // sets a kg/m³ rate on the element (the usual early-stage rule of thumb —
+    // ~90 kg/m³ for a suspended slab, ~150 for columns) and the tonnage is
+    // derived from that element's poured volume. Qty here is TONNES, priced at
+    // the same $/tonne as every other processed bar; unitWeight is null so
+    // computeRowTotal's weightBasis branch is skipped and it costs as
+    // qty * unitCost. Filled in automatically by autoReinforcementByRate —
+    // see costing.js — and dormant until an element carries a kg/m³ rate.
+    ["Reinforcement by rate", "t", null, 1925],
   ]},
   { key: "REINFORCING ACCESSORIES", weightBasis: false, products: [
     ["Delivery fee", "each", null, 300], ["Poly", "roll", null, 89.4],

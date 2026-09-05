@@ -144,7 +144,20 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
    nothing). Every CONCRETE PUMPING rate and minimum comes from the
    supplier's schedule and is editable in the Rates modal.
 
-9. **GST is hardcoded at 10%** (`GST_RATE` in `catalog.js`). This is an
+9. **Reinforcement can be priced off a kg/m³ rate instead of a bar
+   takeoff.** An element carrying `reoRatePerM3` (kg of steel per m³ of
+   concrete — the usual early-stage rule of thumb, ~90 for a suspended slab,
+   ~150 for columns) gets its tonnage derived from its own poured volume by
+   `autoReinforcementByRate`, billed against the "Reinforcement by rate"
+   PROCESSED BAR product whose Qty is TONNES (not metres — its `unitWeight`
+   is deliberately `null` so `computeRowTotal`'s weightBasis branch is
+   skipped). It is **off unless the element carries a rate** — a default here
+   would silently add steel to every existing quote. Typing a Qty on the row
+   takes it manual, exactly like the concrete delivery fees, and the derived
+   tonnage feeds `computeElementReinforcementTonnes` so the steel also earns
+   its steel-fixing crew days rather than costing nothing to install.
+
+10. **GST is hardcoded at 10%** (`GST_RATE` in `catalog.js`). This is an
    Australian tool. If this is ever adapted for another market, that's
    the one place to change — but check every place `GST_RATE` or `* 1.1`
    is used (currently just `computeMarginLadder`).

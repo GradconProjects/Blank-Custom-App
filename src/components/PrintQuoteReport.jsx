@@ -2,7 +2,7 @@ import {
   CATEGORY_ORDER, SECTION_ORDER, FULL_CATALOG, RESOURCE_COLS,
 } from "../data/catalog.js";
 import {
-  computeElementCost, computeGrandTotal, computeMarginLadder, rateKey, lookupRate, computeRowTotal, money, money2, getDefaultMargin, getMarginSteps, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy,
+  computeElementCost, computeGrandTotal, computeMarginLadder, rateKey, lookupRate, computeRowTotal, money, money2, getDefaultMargin, getMarginSteps, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy, autoReinforcementByRate,
 } from "../lib/costing.js";
 import { BOMA_LOGO_DATA_URI } from "../lib/logo.js";
 
@@ -196,6 +196,18 @@ function ElementReportBlock({ item, rates }) {
   const surcharge = autoConcreteSurcharge(item, rates);
   if (surcharge) {
     materialLines.push({ key: `${surcharge.key}::auto`, label: "Production & transport surcharge (CONCRETE — auto, per m³)", qty: surcharge.qty, unit: "m3", total: surcharge.total });
+  }
+  // Reinforcement derived from a kg/m³ rate is real money in the totals too,
+  // and the client should see what it was derived FROM, not just a tonnage.
+  const reoRate = autoReinforcementByRate(item, rates);
+  if (reoRate) {
+    materialLines.push({
+      key: `${reoRate.key}::auto`,
+      label: `Reinforcement by rate (PROCESSED BAR — auto, ${reoRate.ratePerM3} kg/m³ × ${reoRate.volume.toFixed(2)} m³)`,
+      qty: Number(reoRate.tonnes.toFixed(3)),
+      unit: "t",
+      total: reoRate.total,
+    });
   }
 
   const labourLines = RESOURCE_COLS.filter((res) => cost.resourceTotals[res.key] > 0).map((res) => ({

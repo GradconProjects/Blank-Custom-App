@@ -17,6 +17,7 @@ import {
   computeElementCost, computeGrandTotal, computeMarginLadder,
   defaultRates, newElementItem, rateKey, suggestedLabourPrefill, computeExternalScopeLines,
   labourResourceRate, taskRowMeta, labourQuantities, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy, computeRowTotal,
+  autoReinforcementByRate, computeElementReinforcementTonnes,
   computeElementUnitRates, computeProjectUnitRates,
 } from "../src/lib/costing.js";
 import { buildImportFromEstimate, normalizeElementName, geometryForLabel } from "../src/lib/estimateImport.js";
@@ -53,10 +54,10 @@ check("every element type has both a category and a section", () => {
   });
 });
 
-check("13 material categories, 146 products (incl. CONCRETE PUMPING, INSULATION, Bored Piers subcontract, minimum cartage, levy, surcharge)", () => {
+check("13 material categories, 147 products (incl. CONCRETE PUMPING, INSULATION, Bored Piers subcontract, minimum cartage, levy, surcharge, rate-based reo)", () => {
   assert.equal(FULL_CATALOG.length, 13);
   const total = FULL_CATALOG.reduce((s, c) => s + c.products.length, 0);
-  assert.equal(total, 146);
+  assert.equal(total, 147);
   const conc = FULL_CATALOG.find((c) => c.key === "CONCRETE");
   assert.ok(conc.products.some((p) => p.name === "Production & transport surcharge" && p.unit === "m3" && p.unitCost === 9.17), "concrete surcharge product seeded at $9.17/m³");
   // Vapour barrier is its own OTHER ACCESSORIES product, distinct from Insulation
@@ -1060,6 +1061,94 @@ check("Project unit rates: the whole quote's cost over the project's total run, 
   assert.deepEqual(computeProjectUnitRates([bare], rates).map((l) => l.unit), ["m³"]);
   // an empty/zero-cost quote gives nothing rather than dividing by zero
   assert.deepEqual(computeProjectUnitRates([], rates), []);
+});
+
+/* ---------- reinforcement by kg/m³ ---------- */
+const REO_RATE_KEY = rateKey("PROCESSED BAR", "Reinforcement by rate", "t");
+const concreteKeyOf = (name) => rateKey("CONCRETE", name, "m3");
+
+/** An element with `vol` m³ of a real concrete mix and nothing else. */
+function elementWithConcrete(vol, extra = {}) {
+  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "suspended_slab"));
+  const mix = FULL_CATALOG.find((c) => c.key === "CONCRETE")
+    .products.find((p) => p.unit === "m3" && p.unitCost > 0 && !/cartage|surcharge|levy|additive/i.test(p.name));
+  item.qtys[rateKey("CONCRETE", mix.name, mix.unit)] = vol;
+  return { ...item, ...extra, mixKey: rateKey("CONCRETE", mix.name, mix.unit) };
+}
+
+check("Reo by rate is OFF unless the element carries a kg/m³ rate (no silent cost)", () => {
+  const rates = defaultRates();
+  const item = elementWithConcrete(100);
+  assert.equal(autoReinforcementByRate(item, rates), null, "no rate => no row");
+  const withRate = { ...item, reoRatePerM3: 90 };
+  assert.ok(autoReinforcementByRate(withRate, rates), "a rate switches it on");
+});
+
+check("Reo by rate: tonnes = volume × kg/m³ ÷ 1000, costed at the Processed Bar $/tonne", () => {
+  const rates = defaultRates();
+  const auto = autoReinforcementByRate(elementWithConcrete(100, { reoRatePerM3: 90 }), rates);
+  assert.equal(auto.volume, 100);
+  assert.equal(auto.tonnes, 9);                       // 100 m³ × 90 kg/m³ = 9 t
+  assert.equal(auto.unitCost, 1925);
+  assert.equal(auto.total, 9 * 1925);                 // $17,325
+});
+
+check("Reo by rate flows into PROCESSED BAR, and its steel earns fixing crew days too", () => {
+  const rates = defaultRates();
+  const plain = computeElementCost(elementWithConcrete(100), rates);
+  const rated = computeElementCost(elementWithConcrete(100, { reoRatePerM3: 90 }), rates);
+  assert.equal(rated.categoryTotals["PROCESSED BAR"] - plain.categoryTotals["PROCESSED BAR"], 9 * 1925,
+    "materials rise by exactly the derived tonnage");
+  // The element total rises by MORE than the steel itself: 9 t of
+  // reinforcement is 9 t someone has to fix, so the crew engine books the
+  // steelfixer days as well. That coupling is the point of feeding the
+  // derived tonnage into computeElementReinforcementTonnes — a rate-priced
+  // element that quietly cost nothing to fix would be a wrong quote.
+  const labourDelta = rated.total - plain.total - 9 * 1925;
+  assert.ok(labourDelta > 0, "steel-fixing labour follows the derived tonnage");
+  assert.ok(rated.total > plain.total + 9 * 1925, "and the element total carries both");
+});
+
+check("Reo by rate ignores the delivery-fee rows and additives when reading volume", () => {
+  const rates = defaultRates();
+  const item = elementWithConcrete(100, { reoRatePerM3: 90 });
+  item.qtys[concreteKeyOf("Minimum cartage")] = 3;
+  const additive = FULL_CATALOG.find((c) => c.key === "CONCRETE").products.find((p) => /additive/i.test(p.name));
+  if (additive) item.qtys[rateKey("CONCRETE", additive.name, additive.unit)] = 100;
+  assert.equal(autoReinforcementByRate(item, rates).volume, 100, "still 100 m³ of poured concrete");
+});
+
+check("Reo by rate: typing a Qty on the row takes it fully manual", () => {
+  const rates = defaultRates();
+  const item = elementWithConcrete(100, { reoRatePerM3: 90 });
+  item.qtys[REO_RATE_KEY] = 12;                       // a real 12 t schedule
+  assert.equal(autoReinforcementByRate(item, rates), null, "auto stands down");
+  const cost = computeElementCost(item, rates);
+  const plain = computeElementCost(elementWithConcrete(100), rates);
+  assert.equal(cost.categoryTotals["PROCESSED BAR"] - plain.categoryTotals["PROCESSED BAR"], 12 * 1925,
+    "the typed tonnage is billed, not the derived 9 t");
+});
+
+check("Reo by rate reports its tonnage, so delivery planning and steel-fixing crew days see it", () => {
+  const rates = defaultRates();
+  assert.equal(computeElementReinforcementTonnes(elementWithConcrete(100, { reoRatePerM3: 90 }), rates), 9);
+  const manual = elementWithConcrete(100);
+  manual.qtys[REO_RATE_KEY] = 12;
+  assert.equal(computeElementReinforcementTonnes(manual, rates), 12, "a typed tonnage counts too");
+  assert.equal(computeElementReinforcementTonnes(elementWithConcrete(100), rates), 0, "and nothing when unused");
+});
+
+check("Reo by rate costs nothing with no concrete entered, whatever the rate", () => {
+  const rates = defaultRates();
+  const empty = { ...newElementItem(ELEMENT_TYPES.find((t) => t.id === "suspended_slab")), reoRatePerM3: 150 };
+  assert.equal(autoReinforcementByRate(empty, rates), null);
+  assert.equal(computeElementCost(empty, rates).categoryTotals["PROCESSED BAR"], 0);
+});
+
+check("Reo by rate respects a Rates-modal override of the $/tonne", () => {
+  const rates = defaultRates();
+  rates[REO_RATE_KEY] = { ...rates[REO_RATE_KEY], unitCost: 2100 };
+  assert.equal(autoReinforcementByRate(elementWithConcrete(100, { reoRatePerM3: 90 }), rates).total, 9 * 2100);
 });
 
 console.log(`\n${passed} check(s) passed.`);

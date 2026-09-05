@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { rateKey, money2, lookupRate, computeRowTotal, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy } from "../lib/costing.js";
+import { rateKey, money2, lookupRate, computeRowTotal, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy, autoReinforcementByRate } from "../lib/costing.js";
 import { NumInput } from "./atoms.jsx";
 
 /**
@@ -20,6 +20,9 @@ export default function CategoryBlock({ cat, item, rates, onQtyChange, onRateCha
   // poured volume ($2.59/m³ default) — same amber-ghost treatment.
   const surcharge = cat.key === "CONCRETE" ? autoConcreteSurcharge(item, rates) : null;
   const levy = cat.key === "CONCRETE" ? autoEnvironmentLevy(item, rates) : null;
+  // Reinforcement derived from the element's kg/m³ rate rather than a bar
+  // takeoff — same ghost-quantity treatment as the concrete fees above.
+  const reoRate = cat.key === "PROCESSED BAR" ? autoReinforcementByRate(item, rates) : null;
   return (
     <div className="border border-neutral-200 rounded-lg overflow-hidden bg-white">
       <button
@@ -63,7 +66,9 @@ export default function CategoryBlock({ cat, item, rates, onQtyChange, onRateCha
                 const isAutoCartage = minCartage && minCartage.key === qKey;
                 const isAutoSur = surcharge && surcharge.key === qKey;
                 const isAutoLevy = levy && levy.key === qKey;
-                const autoRow = isAutoCartage ? minCartage : isAutoSur ? surcharge : isAutoLevy ? levy : null;
+                const isAutoReo = reoRate && reoRate.key === qKey;
+                const autoRow = isAutoCartage ? minCartage : isAutoSur ? surcharge
+                  : isAutoLevy ? levy : isAutoReo ? { ...reoRate, qty: reoRate.tonnes.toFixed(3) } : null;
                 const rowTotal = autoRow ? autoRow.total : computeRowTotal(cat, rate, qty);
                 const filled = qty > 0 || !!autoRow;
                 return (
@@ -80,6 +85,14 @@ export default function CategoryBlock({ cat, item, rates, onQtyChange, onRateCha
                       )}
                       {isAutoSur && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">auto — per m³ of concrete</span>}
                       {isAutoLevy && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">auto — per m³ of concrete</span>}
+                      {isAutoReo && (
+                        <span
+                          className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                          title={`${reoRate.volume.toFixed(2)} m³ of concrete at ${reoRate.ratePerM3} kg/m³. Type a tonnage to bill a real bar schedule instead.`}
+                        >
+                          auto — {reoRate.ratePerM3} kg/m³ × {reoRate.volume.toFixed(2)} m³
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1 text-neutral-400">{p.unit}</td>
                     <td className="px-2 py-1">

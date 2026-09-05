@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Copy, Trash2, Paperclip, X, RotateCw, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { FULL_CATALOG, LABOUR_TEMPLATES } from "../data/catalog.js";
-import { uid, money2, computeElementCost, computeElementUnitRates, autoLabourQtys, labourQuantities } from "../lib/costing.js";
+import { uid, money2, computeElementCost, computeElementUnitRates, autoLabourQtys, labourQuantities, autoReinforcementByRate } from "../lib/costing.js";
 import { pdfToJpegPages } from "../lib/pdfToImages.js";
 import CategoryBlock from "./CategoryBlock.jsx";
 import LabourMatrix from "./LabourMatrix.jsx";
@@ -28,6 +28,10 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
   // Benchmark rates for the panel beside this row — $/lm and $/m² over the
   // geometry measured in Estimates, $/m³ over this element's own concrete.
   const unitRates = useMemo(() => computeElementUnitRates(item, rates), [item, rates]);
+  // Reinforcement derived from a kg/m³ rate rather than a bar takeoff. null
+  // whenever the element has no rate, no concrete, or a tonnage typed
+  // straight onto the row — see autoReinforcementByRate.
+  const reoByRate = useMemo(() => autoReinforcementByRate(item, rates), [item, rates]);
 
   const patch = (fn) => onChange(fn(item));
 
@@ -128,6 +132,7 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
     patch((it) => ({ ...it, additional: it.additional.map((a) => (a.id === id ? { ...a, ...fields } : a)) }));
 
   const setDescription = (v) => patch((it) => ({ ...it, description: v }));
+  const setReoRate = (v) => patch((it) => ({ ...it, reoRatePerM3: v === "" ? "" : Number(v) }));
   // The description box is for SPECIALIST elements only — hidden by default
   // so ordinary line items stay compact. It appears when the estimator opens
   // it via the small "+ specification" toggle, and stays visible whenever the
@@ -272,6 +277,45 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
             <span>Materials: <b className="font-mono text-neutral-700">{money2(cost.materialsTotal)}</b></span>
             <span>Labour/Equipment: <b className="font-mono text-neutral-700">{money2(cost.labourTotal)}</b></span>
             <span>Custom items: <b className="font-mono text-neutral-700">{money2(cost.additionalTotal)}</b></span>
+          </div>
+
+          {/* Reinforcement by rate — the early-stage alternative to a bar
+              takeoff: set kg of steel per m³ and the tonnage falls out of the
+              concrete already entered. Blank means off, so this costs nothing
+              until someone deliberately uses it. */}
+          <div className="rounded-lg border border-neutral-200 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-semibold">
+                Reinforcement by rate
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  value={item.reoRatePerM3 ?? ""}
+                  onChange={(e) => setReoRate(e.target.value)}
+                  placeholder="—"
+                  className="w-20 text-[13px] font-mono tabular-nums text-right border border-neutral-200 rounded-md px-2 py-1 focus:outline-none focus:border-orange-400"
+                  title="Kilograms of reinforcement per cubic metre of concrete. Leave blank to take off bars individually instead."
+                />
+                <span className="text-xs text-neutral-500">kg/m³</span>
+              </div>
+              {reoByRate ? (
+                <div className="text-xs text-neutral-500">
+                  {reoByRate.volume.toFixed(2)} m³ × {reoByRate.ratePerM3} kg/m³ ={" "}
+                  <b className="font-mono tabular-nums text-neutral-700">{reoByRate.tonnes.toFixed(3)} t</b>{" "}
+                  <span className="font-mono tabular-nums text-orange-600 font-semibold">{money2(reoByRate.total)}</span>
+                  <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">auto</span>
+                </div>
+              ) : (
+                <div className="text-xs text-neutral-400">
+                  {Number(item.reoRatePerM3) > 0
+                    ? "No concrete entered yet — or a tonnage is typed on the Reinforcement by rate row, which takes it manual."
+                    : "Optional. Set a kg/m³ rate to derive the tonnage from this element's concrete instead of taking off bars."}
+                </div>
+              )}
+            </div>
           </div>
 
           {showDesc ? (
