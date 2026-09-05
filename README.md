@@ -11,17 +11,20 @@ rolls out below it, fill in the quantities that apply, and everything
 rolls up live into a quote — element total → section subtotal → category
 subtotal → grand total → margin ladder with GST.
 
-## Trial build
+## Usage metering
 
-The deployed portal has no login and no password — it opens straight into
-the app. Usage is metered **server-side** (`api/trial.js` + Supabase):
-**5 sessions of 1 hour, 5 hours in total**, after which it locks on a
-`GET FULL VERSION` screen. Because the counters live on the server rather
-than in the browser, clearing site data doesn't reset them; see
-`CLAUDE.md` -> "Trial meter" for how identity works and where its limits
-honestly are.
+The deployed portal has no login and no password — it opens straight into the
+app. Usage is metered server-side (`api/trial.js` + Supabase) and the portal
+locks on a `GET FULL VERSION` screen once a visitor's allowance is spent.
 
-Run `npm run verify:trial` after touching `api/trial.js`.
+The limits are enforced, never advertised: no screen a visitor sees states
+how many sessions or hours they get. The only indicator is a bare countdown
+of the current session, so nobody is cut off mid-edit without warning.
+`scripts/verify-portal-e2e.mjs` asserts that, so the wording can't creep back.
+
+See `CLAUDE.md` -> "Trial meter" for the actual numbers, how identity works,
+and where its limits honestly are. Run `npm run verify:trial` after touching
+`api/trial.js`.
 
 ## Running it
 

@@ -289,6 +289,15 @@ row instead of a fresh five hours. It's set to 3 rather than 1 because
 offices, universities and mobile carriers share addresses, and turning away
 a genuine second viewer is worse than letting a determined person retry.
 
+**Say nothing about the limits.** The meter is enforced, never advertised.
+No screen a visitor sees may state how many sessions or hours they get — not
+the dashboard, not the countdown pill, not the lock screen. The pill is a
+bare `MM:SS left` clock and exists only so nobody is cut off mid-edit with no
+warning; it carries no session count and no total. The lock screen says
+`GET FULL VERSION` and one neutral line. `scripts/verify-portal-e2e.mjs` has
+three checks that fail if that copy comes back, so don't "helpfully" restore
+it.
+
 **Owner bypass.** `TRIAL_OWNER_KEY` — visiting `/?key=<it>` sets a cookie
 that skips the meter, so you can always demo without burning trial. The key
 is scrubbed from the address bar on arrival.

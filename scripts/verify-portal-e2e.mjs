@@ -86,8 +86,14 @@ ok("lands straight on the dashboard — no login, no password", true);
 ok("no login screen exists in the DOM at all", await page.locator("#screen-login").count() === 0);
 ok("no End session button", await page.locator("#logout-btn").count() === 0);
 await page.waitForTimeout(1200);
-ok("countdown pill is server-fed and running",
-  /5\d:\d\d left · session 1\/5/.test((await page.textContent("#trial-pill-dash")).replace(/\s+/g," ")));
+{
+  const pill = (await page.textContent("#trial-pill-dash")).replace(/\s+/g, " ").trim();
+  ok("countdown pill is server-fed and running", /^5\d:\d\d left$/.test(pill));
+  ok("...and it is a bare clock — no session count, no terms", !/session|trial|\/\s*5/i.test(pill));
+  const head = (await page.locator("body").innerText()).toLowerCase();
+  ok("nothing on the dashboard announces the preview terms",
+    !head.includes("trial session") && !head.includes("trial build") && !head.includes("5 hours"));
+}
 ok("server recorded exactly one visitor, one session", rows.size === 1 && [...rows.values()][0].sessions_used === 1);
 await page.screenshot({ path: `${S}/shot2-boot.png` });
 
@@ -114,6 +120,14 @@ await page.reload();
 await page.waitForSelector("#screen-locked.active", { timeout: 10000 });
 ok("a spent trial shows GET FULL VERSION",
   (await page.textContent(".lock-headline")).trim() === "GET FULL VERSION");
+{
+  // The limits are enforced, never advertised: no page a visitor sees may
+  // spell out how many sessions or hours the preview allows.
+  const shown = (await page.locator("body").innerText()).toLowerCase();
+  ok("the lock screen states no terms (no session/hour counts)",
+    !/\b5\s*\/\s*5\b/.test(shown) && !shown.includes("sessions used") &&
+    !shown.includes("trial time used") && !shown.includes("5 hours"));
+}
 await page.screenshot({ path: `${S}/shot2-locked.png` });
 
 // --- 6. a brand-new browser profile from the same IP inherits the spent trial ---
