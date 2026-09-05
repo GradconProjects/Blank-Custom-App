@@ -9,37 +9,41 @@ import { isUrgent, daysLabel, priorityRank } from "../lib/planner.js";
 const CHANNELS = ["Call", "Email", "Site meeting", "Text/WhatsApp", "Other"];
 const VARIATION_STATUSES = ["Draft", "Submitted", "Approved", "Rejected"];
 
-// Seed rows for the contractor/supplier registers, compiled from the
-// email history. These are the registers' *initial* value only — the first
-// time anyone edits (or deletes) a row, the whole edited list is what gets
-// persisted (localStorage/Supabase) and these defaults never reassert
-// themselves. IDs are fixed strings, not uid(), so the same seed rows carry
-// identical identity on every device that first saves them.
+// Seed rows for the contractor/supplier registers — placeholders only.
+//
+// These used to carry the real trade contacts (names, mobiles, email
+// addresses) lifted from the original business's email history. That is
+// other people's personal data and it has no business shipping inside an app
+// that gets deployed publicly and handed to strangers, so the rows are now
+// role descriptions with every contact field blank. The register still
+// demonstrates its shape; the estimator fills in their own contacts, which
+// then persist like any other edit.
+//
+// These are the registers' *initial* value only — the first time anyone edits
+// (or deletes) a row, the whole edited list is what gets persisted
+// (localStorage/Supabase) and these defaults never reassert themselves. IDs
+// are fixed strings, not uid(), so the same seed rows carry identical
+// identity on every device that first saves them.
+const blankRow = (id, name, role) => ({ id, name, role, contact: "", phone: "", email: "", notes: "" });
+
 const DEFAULT_CONTRACTORS = [
-  { id: "seed-allstate", name: "All State Screw Piling Pty Ltd", role: "Steel screw piles — supply & install", contact: "Dean Johnson (Director)", phone: "03 9773 5251", email: "estimating@allstatesp.com.au", notes: "Also Clivia / Andrea; accounts@allstatesp.com.au; www.allstatescrewpiling.com.au" },
-  { id: "seed-apex", name: "Apex Formwork", role: "Formwork — suspended slabs, hobs, edges", contact: "Neil Hanley / David Hanley (Directors)", phone: "0450 724 700", email: "apexformworkptyltd@gmail.com", notes: "David 0450 774 700; office contact Elaine; PO Box 3201 Wheelers Hill VIC" },
-  { id: "seed-auspt", name: "Aus PT", role: "Post-tensioning", contact: "J Xerri", phone: "9702 4557", email: "JXerri@auspt.net.au", notes: "" },
-  { id: "seed-bcs", name: "BCS (Basement Construction)", role: "Basement construction", contact: "Will Bean", phone: "0421 830 159", email: "will_bean@basementconstruction.com.au", notes: "" },
-  { id: "seed-biax", name: "Biax Foundations", role: "Foundations", contact: "Dave", phone: "0429 888 636", email: "dave@biax.com.au", notes: "" },
-  { id: "seed-dmac", name: "DMAC Contracting", role: "Piling — CFA piling, bored pier retention", contact: "Trevor Carr (Manager)", phone: "0401 514 919", email: "trevor@dmacpiling.com.au", notes: "dmacpiling.com.au" },
-  { id: "seed-melbrender", name: "Melbourne Render Co. Pty Ltd", role: "Engineered screed — supply & install", contact: "Graham De Silva", phone: "0412 116 707", email: "accounts@melbournerenderco.com.au", notes: "" },
+  blankRow("seed-piling", "", "Piling — bored piers, CFA, screw piles"),
+  blankRow("seed-formwork", "", "Formwork — suspended slabs, hobs, edges"),
+  blankRow("seed-posttension", "", "Post-tensioning"),
+  blankRow("seed-basement", "", "Basement construction"),
+  blankRow("seed-reofix", "", "Reinforcement fixing"),
+  blankRow("seed-screed", "", "Engineered screed — supply & install"),
+  blankRow("seed-steelerect", "", "Structural steel — supply & erect"),
 ];
 const DEFAULT_SUPPLIERS = [
-  { id: "seed-akz", name: "AKZ Reinforcing", role: "Reinforcement steel", contact: "", phone: "03 9703 1666", email: "hallam@akz.com.au", notes: "" },
-  { id: "seed-arc", name: "ARC (The Australian Reinforcing Company)", role: "Reinforcement steel", contact: "", phone: "", email: "marketing@arcreo.com.au", notes: "" },
-  { id: "seed-ausreo", name: "AUSREO", role: "Reinforcement steel", contact: "", phone: "1300 287 736", email: "info@ausreo.com.au", notes: "" },
-  { id: "seed-bayside", name: "Bayside Concreters Supplies", role: "Concreting supplies", contact: "", phone: "5981 4617", email: "information@baysideconcreterssupplies.com.au", notes: "" },
-  { id: "seed-foamex", name: "Foamex", role: "EPS / foam products", contact: "", phone: "8739 5800", email: "sales@foamex.com.au", notes: "" },
-  { id: "seed-kastex", name: "Kastex", role: "", contact: "Aida", phone: "0421 241 933", email: "aida@kastex.com.au", notes: "" },
-  { id: "seed-kingston", name: "Kingston Plant", role: "Plant hire", contact: "J Corstens", phone: "9751 3699", email: "JCorstens@kingston.com.au", notes: "" },
-  { id: "seed-mbs", name: "MBS Architectural", role: "Ceiling, wall & insulation products (e.g. K3 Kooltherm)", contact: "Jade Hughes", phone: "03 9580 7800", email: "ordersvic@mbsarchitectural.com.au", notes: "7 Haymer Court Braeside VIC" },
-  { id: "seed-natmasonry", name: "National Masonry", role: "Masonry", contact: "Danielle Sartori", phone: "03 9361 6400", email: "Danielle.Sartori@nationalmasonry.com.au", notes: "" },
-  { id: "seed-parkroad", name: "Park Road Timber", role: "Timber", contact: "", phone: "9584 8855", email: "", notes: "" },
-  { id: "seed-thermaluxe", name: "Thermaluxe", role: "Thermal insulation", contact: "", phone: "0405 00 81 55", email: "hello@thermaluxe.com.au", notes: "" },
-  { id: "seed-thermostruct", name: "Thermostruct Thermal Solutions", role: "Thermal solutions", contact: "", phone: "03 9095 8322", email: "info@thermostruct.com.au", notes: "" },
-  { id: "seed-uniqueeco", name: "Unique Eco Solutions", role: "Foam products", contact: "Tony", phone: "0423 924 308", email: "tony@uniquefoams.com", notes: "" },
+  blankRow("seed-reo", "", "Reinforcement steel"),
+  blankRow("seed-concrete", "", "Concrete supply"),
+  blankRow("seed-formply", "", "Formwork materials"),
+  blankRow("seed-accessories", "", "Concreting accessories"),
+  blankRow("seed-insulation", "", "Insulation & foam products"),
+  blankRow("seed-plant", "", "Plant hire"),
+  blankRow("seed-steel", "", "Structural steel & purlins"),
 ];
-
 // Portal Settings preference for the priority a project shows before anyone
 // has set one — validated against the real list so a stale/typo'd stored
 // value can never render an unstyled priority.

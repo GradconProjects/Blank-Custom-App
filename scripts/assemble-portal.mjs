@@ -10,6 +10,7 @@
  * instead of just the bare Quotes SPA vite build produces on its own.
  */
 import fs from "node:fs";
+import { transformSync } from "esbuild";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +70,65 @@ const costPlannerB64 = Buffer.from(costPlannerHtml, "utf8").toString("base64");
 const ratesLibraryB64 = Buffer.from(ratesLibraryHtml, "utf8").toString("base64");
 
 let shell = fs.readFileSync(shellPath, "utf8");
+
+// --- Strip the shell's own comments and minify its CSS ----------------------
+// The <style> block and the HTML comments were still shipping verbatim, which
+// meant the notes explaining the meter, the owner unlock and the lock screen
+// could be read off the deployed page even with the script minified.
+{
+  const styleOpen = shell.indexOf("<style>");
+  const styleClose = shell.indexOf("</style>", styleOpen);
+  if (styleOpen !== -1 && styleClose !== -1) {
+    const css = shell.slice(styleOpen + "<style>".length, styleClose);
+    const out = transformSync(css, { loader: "css", minify: true }).code;
+    shell = shell.slice(0, styleOpen + "<style>".length) + out + shell.slice(styleClose);
+  }
+
+  // HTML comments, but ONLY before the base64 payload scripts — those are
+  // opaque data and must not be touched.
+  const payloadAt = shell.indexOf('<script id="quotes-app-b64"');
+  const cut = payloadAt === -1 ? shell.length : payloadAt;
+  shell = shell.slice(0, cut).replace(/<!--[\s\S]*?-->/g, "") + shell.slice(cut);
+}
+
+// --- Minify the shell's own inline script -----------------------------------
+// The four apps are already minified by their own builds; the shell was the
+// one part still shipping as commented, readable source, which meant the
+// whole trial-meter client — and the shape of the owner-key check — could be
+// read straight out of View Source.
+//
+// Be clear about what this buys: it is FRICTION, not protection. Minified JS
+// is still JS, and anyone determined can pretty-print it in seconds. The only
+// real fix is to stop serving the app to visitors who haven't been granted a
+// session (see CLAUDE.md -> "Trial meter"). What this does do is stop the
+// portal reading as copy-paste-ready source to a casual look, and it strips
+// the comments that would otherwise explain the meter to whoever opens it.
+{
+  const open = shell.indexOf("<script>\n(function(){");
+  if (open === -1) throw new Error("shell script not found — did the <script> wrapper change?");
+  const bodyStart = open + "<script>".length;
+  const close = shell.indexOf("</script>", bodyStart);
+  if (close === -1) throw new Error("shell script has no closing tag");
+
+  const original = shell.slice(bodyStart, close);
+  const { code } = transformSync(original, {
+    minify: true,
+    // Keep it ES2019 so the minifier doesn't emit syntax older Safari chokes
+    // on — this file is the entry point, so a parse error here is a blank page.
+    target: "es2019",
+    legalComments: "none",
+  });
+  // Same guard as the app bundles below: a literal "</script" inside a string
+  // would close the tag early and spill the rest of the file as visible text.
+  const safe = code.replace(/<\/script/gi, "<\\/script");
+  shell = shell.slice(0, bodyStart) + "\n" + safe + "\n" + shell.slice(close);
+
+  const saved = original.length - safe.length;
+  console.log(
+    `Shell script minified: ${(original.length / 1024).toFixed(1)} kB -> ` +
+    `${(safe.length / 1024).toFixed(1)} kB (${(saved / 1024).toFixed(1)} kB of source and comments removed)`
+  );
+}
 shell = shell
   .replace("__QUOTES_B64__", quotesB64)
   .replace("__ESTIMATES_B64__", estimatesB64)

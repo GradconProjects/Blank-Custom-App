@@ -9,6 +9,8 @@
  * Extend this file when you add new domain logic to lib/costing.js.
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
   FULL_CATALOG, RESOURCE_COLS, ELEMENT_TYPES, CATEGORY_ORDER, SECTION_ORDER, LABOUR_TEMPLATES, MARGIN_STEPS,
 } from "../src/data/catalog.js";
@@ -1266,6 +1268,33 @@ check("Steel tonnage does NOT leak into the reinforcement tonnage figure", () =>
   item.qtys[SHS_KEY] = 50;
   assert.equal(computeElementReinforcementTonnes(item, rates), 0,
     "structural steel is not reinforcement — it must not book steel-fixing crew days");
+});
+
+/* ---------- no third-party personal data ships ---------- */
+check("No email address or phone number is baked into the shipped source", () => {
+  const roots = ["src", "portal", "api", "scripts"];
+  const files = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.(jsx?|mjs|html)$/.test(e.name)) files.push(full);
+    }
+  };
+  roots.forEach((r) => { if (fs.existsSync(r)) walk(r); });
+
+  // The registers used to seed real trade contacts scraped from an email
+  // history — other people's personal data, in an app that gets deployed
+  // publicly. Nothing of the sort may come back.
+  const email = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+  const phone = /\b(?:0[0-9]{3} ?[0-9]{3} ?[0-9]{3}|0[0-9] [0-9]{4} ?[0-9]{4}|1300 ?[0-9]{3} ?[0-9]{3})\b/;
+  const offenders = [];
+  for (const f of files) {
+    const text = fs.readFileSync(f, "utf8");
+    if (email.test(text)) offenders.push(`${f}: ${text.match(email)[0]}`);
+    if (phone.test(text)) offenders.push(`${f}: ${text.match(phone)[0]}`);
+  }
+  assert.deepEqual(offenders, [], "personal contact data found in source");
 });
 
 console.log(`\n${passed} check(s) passed.`);

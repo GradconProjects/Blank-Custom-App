@@ -171,8 +171,11 @@ rows.clear(); seq = 0;
   const page = await ctx.newPage();
   await page.goto(URL_);
   await page.waitForSelector("#screen-dashboard.active", { timeout: 10000 });
-  ok("nothing offers the unlock to a visitor",
-    !(await page.locator("body").innerText()).toLowerCase().includes("access key"));
+  {
+    const t = (await page.locator("body").innerText()).toLowerCase();
+    ok("nothing offers the unlock to a visitor",
+      !t.includes("access key") && !t.includes("sign in") && !t.includes("log in") && !t.includes("password"));
+  }
   ok("the unlock prompt starts hidden", await page.locator("#owner-modal-backdrop").isHidden());
 
   const logo = page.locator("#screen-dashboard .brand-logo");
@@ -183,7 +186,7 @@ rows.clear(); seq = 0;
   await page.fill("#owner-key", "1111");
   await page.click("#owner-form button[type=submit]");
   await page.waitForTimeout(500);
-  ok("a wrong key is rejected", (await page.textContent("#owner-error")).includes("not recognised"));
+  ok("a wrong key is rejected", /not recognised/i.test(await page.textContent("#owner-error")));
 
   await page.fill("#owner-key", "2580");
   await page.click("#owner-form button[type=submit]");
@@ -198,8 +201,8 @@ rows.clear(); seq = 0;
   ok("the unlock survives a reload", (await page.textContent("#trial-pill-dash")).includes("Full access"));
 }
 
-// The key has to work FROM the lock screen too — that is exactly when the
-// owner most needs it.
+// The spent screen carries the ONLY sign-in field in the app: blank, and the
+// button says exactly "Enter".
 {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -211,14 +214,25 @@ rows.clear(); seq = 0;
   }
   await page.reload();
   await page.waitForSelector("#screen-locked.active", { timeout: 10000 });
-  await page.locator("#screen-locked .brand-logo").click({ clickCount: 3, delay: 30 });
-  await page.waitForTimeout(300);
-  ok("the unlock opens from the GET FULL VERSION screen too",
-    await page.locator("#owner-modal-backdrop").isVisible());
-  await page.fill("#owner-key", "2580");
-  await page.click("#owner-form button[type=submit]");
+  ok("the spent screen shows an Enter field", await page.locator("#lock-key").isVisible());
+  ok("its button says exactly Enter",
+    (await page.textContent("#lock-form button")).trim() === "Enter");
+  ok("the field is blank — no label, no placeholder, no prefilled value",
+    (await page.inputValue("#lock-key")) === "" &&
+    !(await page.getAttribute("#lock-key", "placeholder")) &&
+    await page.locator("#lock-form label").count() === 0);
+  ok("still says GET FULL VERSION",
+    (await page.textContent(".lock-headline")).trim() === "GET FULL VERSION");
+
+  await page.fill("#lock-key", "1111");
+  await page.click("#lock-form button[type=submit]");
+  await page.waitForTimeout(500);
+  ok("a wrong key on the Enter field is rejected",
+    /not recognised/i.test(await page.textContent("#lock-error")));
+  await page.fill("#lock-key", "2580");
+  await page.click("#lock-form button[type=submit]");
   await page.waitForSelector("#screen-dashboard.active", { timeout: 10000 });
-  ok("unlocking from the lock screen lets the owner straight back in", true);
+  ok("Enter with the right key lets the owner straight back in", true);
 }
 
 // And on a deployment where the server meter isn't configured at all.
