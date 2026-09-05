@@ -2085,7 +2085,7 @@ function renderPilesCapTab(inst){
     ${chk(pfx+yOn, c[yOn], label.split(" ")[0]+" Y bars")}${F("Dia", barSizeSel(pfx+yDia, c[yDia]))}${F("Spacing (mm)", inpNum(pfx+ySp, c[ySp]))}${chk(pfx+yLap, c[yLap], "Lap")}
    </div>`;
 
-  return `${chk("cap.on", c.on, "Take the pile caps / capping beams off with these piles", "capOn")}
+  return `${chk("cap.on", c.on, "Take the pile caps / capping beams off with these piles", "capOn", true)}
   <div class="subsec ${c.on?'':'hidden'}" data-show-if="capOn">
    <div class="grid cols3">
     ${F("What caps these piles", selOpts("cap.mode", mode, [
@@ -2142,11 +2142,8 @@ function renderPilesCapTab(inst){
    </div>
    <p class="small">Dowels UP from the piles into this cap live on the <b>Connections / Dowels</b> tab — entered once at the pile so the cap never doubles them.</p>
 
-   <div class="sechead">Formwork, blinding &amp; excavation</div>
-   <div class="grid cols4">
-    ${chk("cap.formA", c.formA, "Form side A")}${chk("cap.formB", c.formB, "Form side B")}
-    ${chk("cap.formC", c.formC, "Form side C")}${chk("cap.formD", c.formD, "Form side D")}
-   </div>
+   <div class="sechead">Blinding &amp; excavation</div>
+   <p class="small">Formwork to the cap and the capping beam is on the <b>Formwork</b> tab, with the rest of this element's formwork.</p>
    <div class="grid cols3">
     ${F("Blinding thickness (mm)", inpNum("cap.blinding", c.blinding))}
     ${F("Blinding material", selOpts("cap.blindingMaterial", c.blindingMaterial, [["concrete","Blinding concrete"],["crushedrock","Crushed rock"],["sand","Sand"],["none","None"]]))}
@@ -2155,6 +2152,45 @@ function renderPilesCapTab(inst){
 
    <div class="tip"><span class="ico">🎓</span><div>Taking the caps off here is the quick way when every cap belongs to one pile group — set <b>piles per cap</b> and the count follows the pile count, so changing the piles changes the caps. For a cap picked up by several different pile groups, or one you want scheduled on its own, leave this off and add the standalone <b>Pile Cap</b> or <b>Capping Beam</b> element instead; both are still in the Foundations list.</div></div>
   </div>`;
+}
+
+/** Formwork to the caps and the capping beam, shown on the Formwork tab so
+ *  every formwork decision for this element sits in one place rather than
+ *  being split across two. The face keys stay formA-D because that is what
+ *  computePileCap reads; the LABELS say which face each one is, since "A"
+ *  and "C" mean nothing on a drawing. */
+function renderPilesCapFormwork(inst){
+  const d = inst.data, c = d.cap || {};
+  if(!c.on) return `<p class="small">Pile cap and capping beam formwork appears here once <b>Take the pile caps / capping beams off with these piles</b> is ticked on the Pile Cap tab.</p>`;
+
+  const mode = c.mode || "caps";
+  const wantCaps = mode === "caps" || mode === "both";
+  const wantBeam = mode === "beam" || mode === "both";
+  const bm = c.beam || {};
+
+  /** The m² those ticks actually produce — same sum computePileCap does. */
+  const faceArea = (o, n) => {
+    const L = num(o.L)/1000, W = num(o.W)/1000, D = num(o.D)/1000;
+    return n * ((o.formA?L*D:0) + (o.formB?L*D:0) + (o.formC?W*D:0) + (o.formD?W*D:0));
+  };
+  const caps = pileCapCount(d), beams = Math.max(1, num(c.beamQty, 1));
+
+  const faces = (pfx, o, longLabel, endLabel) => `
+   <div class="grid cols4">
+    ${chk(pfx+"formA", o.formA, longLabel + " 1 (L × D)", null, true)}
+    ${chk(pfx+"formB", o.formB, longLabel + " 2 (L × D)", null, true)}
+    ${chk(pfx+"formC", o.formC, endLabel + " 1 (W × D)", null, true)}
+    ${chk(pfx+"formD", o.formD, endLabel + " 2 (W × D)", null, true)}
+   </div>`;
+
+  return `<div class="sechead">Pile caps &amp; capping beams</div>
+  ${wantCaps ? `<p class="small"><b>Pile caps</b> — ${caps} cap${caps===1?"":"s"} at ${num(c.L)}×${num(c.W)}×${num(c.D)}mm. Untick any face cast against the ground or against an adjacent pour.</p>
+   ${faces("cap.", c, "Long side", "End")}
+   <p class="small">Formed area: <b>${fmt(faceArea(c, caps), 2)} m²</b>.</p>` : ""}
+  ${wantBeam ? `<p class="small"><b>Capping beam</b> — ${beams} beam${beams===1?"":"s"} at ${num(bm.L)}×${num(bm.W)}×${num(bm.D)}mm.</p>
+   ${faces("cap.beam.", bm, "Side", "End")}
+   <p class="small">Formed area: <b>${fmt(faceArea(bm, beams), 2)} m²</b>.</p>` : ""}
+  <div class="tip"><span class="ico">🎓</span><div>These faces feed the same <b>Side formwork</b> line the standalone Pile Cap element produces, so an integrated cap and a standalone one cost the same to form. A cap cast against a neat excavation often needs no side formwork at all — untick all four and the line disappears rather than quietly costing you a wall of ply.</div></div>`;
 }
 
 function renderPiles(inst){
@@ -2176,6 +2212,7 @@ function renderPiles(inst){
 
   parts.geom = header + parts.geom;
   parts.pilecap = renderPilesCapTab(inst);
+  parts.form = (parts.form || "") + renderPilesCapFormwork(inst);
   return parts;
 }
 

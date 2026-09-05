@@ -201,8 +201,23 @@ deliberately no cap Quantity field.
 It delegates to `computePileCap` (once per mode, with `qty` and `shape`
 overridden) rather than reimplementing it, so an integrated cap and a
 standalone one can never give different steel. The tab carries the full cap:
-both mats, side/face bars, column starters, formwork faces, blinding and
-vapour membrane, and excavation oversize.
+both mats, side/face bars, column starters, blinding and vapour membrane, and
+excavation oversize.
+
+**Cap and beam formwork lives on the Formwork tab, not the Pile Cap tab**
+(`renderPilesCapFormwork`, appended to `parts.form`). An estimator pricing
+formwork wants every formed face on this element in one place — the casing
+and the cap sides together — rather than hunting for half of it two tabs
+away; the Pile Cap tab keeps a pointer where the faces used to be. The faces
+are named for what they are (`Long side 1 (L × D)`, `End 2 (W × D)`, and the
+beam's own `Side 1`/`End 1`) rather than A/B/C/D, and the section shows the
+`Formed area` it produces so it can be read against the billed Side formwork
+line without switching to Results. It is the same `cap.formA`…`cap.formD`
+fields `computePileCap` already costs off — nothing recomputes area here, the
+readout sums the same faces. All four toggles and `cap.on` pass
+`rerender = true` to `chk(field, checked, label, toggle, rerender)`: a plain
+`toggle` only shows/hides a `data-show-if` block, which would leave this
+section's text and area stale.
 
 Watch the default merge in `pilesDefaults`: `pileSupplyDefaults()` must come
 BEFORE `pierDefaults()`, because the element opens on a cast-in-situ pile and
