@@ -162,6 +162,37 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
    the one place to change — but check every place `GST_RATE` or `* 1.1`
    is used (currently just `computeMarginLadder`).
 
+## Estimates — the Piles group
+
+`portal/estimates-app.html`'s `LIBRARY` carries a **Piles** group between
+Earthworks and Foundations, split by how the pile is actually built:
+
+- **Cast in place** (the `pier` calculator — measures the poured volume and
+  cage): Bored Pier, CFA, Driven Cast-In-Situ, Mini Pile / Micropile.
+- **Supplied and driven** (the `pilesupply` calculator): every shape —
+  square, octagonal, hexagonal, circular, spun hollow, steel tube, steel
+  H/UB, sheet, screw/helical, timber. These are manufactured off site, so
+  there is no site pour to measure: it reports pile count, supplied and
+  driven lineal metres, a supply volume for concrete sections and a tonnage
+  for steel ones. Where a tonnage needs a kg/m the estimator supplies it and
+  the module **warns rather than inventing one** — never make it guess.
+
+**Pile Cap and Capping Beam appear in two groups at once**, under Piles and
+still under Foundations. They are the *same objects* (`PILE_CAP_ITEM`,
+`CAPPING_BEAM_ITEM`) referenced from both arrays, so one id, one tick, one
+set of quantities — there is no way to double-count them. Each carries an
+explicit `stage` so the export's Stage column stays "Foundations" whichever
+list it was reached from, and `LIB_INDEX` keeps the *first* occurrence rather
+than whichever group was iterated last. `renderLibrary()` redraws on every
+tick so the twin checkbox stays in sync.
+
+The starter/dowel chain runs the whole way up: pile → cap → column. Those
+fields live on the **Connections / Dowels** tab, which is the `conns` key a
+calculator's `render()` returns — `renderPileCap` once built that section and
+then forgot to return it, so the bars billed off the defaults with no field
+to edit them. If you add a calculator with connections, check the key is
+actually in the return.
+
 ## Structural steel
 
 The catalog covers structural steel alongside concrete: seven categories

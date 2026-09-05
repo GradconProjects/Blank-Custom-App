@@ -1104,6 +1104,9 @@ function mm2_to_m2(v){ return v/1e6; }
 // `stage` pins the export's Stage column to Foundations regardless of which
 // list it was reached from.
 const PILE_CAP_ITEM = {id:"pilecap", label:"Pile Cap", calc:"pilecap", stage:"Foundations"};
+// Same arrangement for the capping beam: it caps a row of piles, so it
+// belongs in the piling package, but it is still a foundation element.
+const CAPPING_BEAM_ITEM = {id:"cappingbeam", label:"Capping Beam", calc:"beam", beamCategory:"Ground", stage:"Foundations"};
 
 const LIBRARY = [
  {group:"Earthworks", items:[
@@ -1136,9 +1139,14 @@ const LIBRARY = [
    {id:"screwpile", label:"Screw / Helical Pile", calc:"pilesupply", shape:"screw"},
    {id:"timberpile", label:"Timber Pile", calc:"pilesupply", shape:"timber"},
    //
-   // The cap belongs to the piling package as much as to the foundations —
-   // see PILE_CAP_ITEM above; this is the same element, not a copy.
+   // The cap and the capping beam belong to the piling package as much as to
+   // the foundations — see PILE_CAP_ITEM / CAPPING_BEAM_ITEM above. These are
+   // the same elements, not copies: one id, one tick, one set of quantities.
+   // Both carry the full starter/dowel detailing (bars out of the cap into
+   // the column above, embedment, projection, hook and lap), and the piles
+   // themselves carry their starters up into the cap.
    PILE_CAP_ITEM,
+   CAPPING_BEAM_ITEM,
  ]},
  {group:"Foundations", items:[
    {id:"stripfooting", label:"Strip Footing", calc:"stripfooting"},
@@ -1146,7 +1154,7 @@ const LIBRARY = [
    {id:"stumpfooting", label:"Stump Footing Pad", calc:"padfooting", kind:"stump"},
    PILE_CAP_ITEM,
    {id:"groundbeam", label:"Ground Beam", calc:"beam", beamCategory:"Ground"},
-   {id:"cappingbeam", label:"Capping Beam", calc:"beam", beamCategory:"Ground"},
+   CAPPING_BEAM_ITEM,
    {id:"anchorblock", label:"Anchor Block", calc:"padfooting"},
    {id:"columnbaseplate", label:"Column Base Plate / Grout Pad", calc:"padfooting"},
  ]},
@@ -2224,7 +2232,11 @@ function renderPileCap(inst){
   <div class="subsec"><div class="sechead">Incoming from linked pier</div>${incomingStarters(d.linkTarget)}</div>`;
   let form=`<p class="small">Pick anywhere from none (fully cast against ground, oversized excavation) to all 4 sides (formed in open excavation with clearance).</p>
   ${faceRow([["formA","Face A (long side 1) — L×D"],["formB","Face B (long side 2) — L×D"],["formC","Face C (end 1) — W×D"],["formD","Face D (end 2) — W×D"]],d)}`;
-  return {geom,conc:concSection(d,`<p class="small">Concrete = L×W×D</p>`),reo,form,exc:`<p class="small">Excavation = (L+2×oversize)×(W+2×oversize)×(D+blinding)</p>`,blind:blindingSection(d)};
+  // `conns` carries the column starters out of the cap. It was being built
+  // above and then dropped from this return, so computePileCap billed the
+  // starters off the defaults while the estimator had no field to see or
+  // change them — bars in the quantities, invisible in the UI.
+  return {geom,conc:concSection(d,`<p class="small">Concrete = L×W×D</p>`),reo,conns,form,exc:`<p class="small">Excavation = (L+2×oversize)×(W+2×oversize)×(D+blinding)</p>`,blind:blindingSection(d)};
 }
 function computePileCap(inst,def){
   let d=inst.data,lines=[];
