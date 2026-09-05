@@ -1802,6 +1802,177 @@ function sdBarShapeUI(d, legacyMm){
       <p class="small">A single straight length per dowel position. If the detail is an L / Z / cranked step bar, sketch the shape instead and type each leg's length.</p>`}
   </div>`;
 }
+/* ================= CONNECTION / STARTER BAR SETS =================
+   Every starter, dowel, step-down and continuity bar in the app resolves its
+   length HERE, so a pier's starters, a pile cap's column starters and a row
+   in the Additional Connections table can never disagree about what the same
+   detail measures.
+
+   Three ways to state a bar's length, picked per set on the card:
+
+     derive  — embedment + projection + hook allowance + lap. The original
+               behaviour and still the default, so no saved takeoff moves.
+     manual  — the estimator types ONE bar's TOTAL length in mm straight off
+               the bar schedule. Nothing is added to it: a scheduled 2400mm
+               bar bills 2400mm even if the embed/proj fields would disagree.
+               This is the honest answer when the schedule is already drawn
+               and deriving the number again just invites a discrepancy.
+     shape   — the bar is sketched (L, Z, cranked, double-cranked, hairpin)
+               and each straightened segment's TRUE length typed in mm; the
+               bar is the segments summed. Same machinery as the step-bar
+               sketch, so there is one drawing tool to learn, not two.
+
+   Sets are repeatable. A real head detail is rarely one bar type — an outer
+   ring of hooked N24, an inner ring of straight N16 and a coupler bar in the
+   middle is three sets, and averaging them into a single "quantity ×
+   diameter" row is how a takeoff quietly loses steel. `<p>Layers` multiplies
+   the bar count within a set (two mats of the same bar), and every starter
+   block carries an "additional sets" table underneath for the rest.
+
+   The field-name convention is a prefix plus a capitalised suffix, so the
+   pier's `connEmbed`, the cap's `colEmbed` and a table row's bare `embed`
+   are all reachable from the same code: `ck("conn","embed")` → "connEmbed",
+   `ck("","embed")` → "embed". ================= */
+const CONN_LEN_MODES = [
+  ["derive", "Derive it — embedment + projection + hook + lap"],
+  ["manual", "Manual — type the bar's total length"],
+  ["shape",  "Shape — sketch the bar, type each leg"]
+];
+function ck(p, name){ return p ? p + name.charAt(0).toUpperCase() + name.slice(1) : name; }
+function connLenMode(o, p){ let m = o[ck(p,"lenMode")]; return (m === "manual" || m === "shape") ? m : "derive"; }
+function connShapeLens(o, p){ let L = o[ck(p,"lens")]; return Array.isArray(L) ? L : []; }
+function connHasShape(o, p){ let D = o[ck(p,"dirs")]; return Array.isArray(D) && D.length > 0; }
+/* THE length resolver — one bar, in mm. Never inline this arithmetic. */
+function connBarLenMm(o, p, dia){
+  let mode = connLenMode(o, p);
+  if(mode === "manual") return Math.max(0, num(o[ck(p,"lenMm")]));
+  if(mode === "shape")  return connShapeLens(o,p).reduce((s,v) => s + Math.max(0, num(v)), 0);
+  return Math.max(0, num(o[ck(p,"embed")]) + num(o[ck(p,"proj")])
+    + anchorLen(o[ck(p,"hook")], dia || 12, o[ck(p,"custom")]) + num(o[ck(p,"lap")]));
+}
+function connLayers(o, p){ return Math.max(1, Math.round(num(o[ck(p,"layers")], 1) || 1)); }
+/* Bars in a set = bars per layer × layers. */
+function connBarCount(o, p, qty){ return num(qty !== undefined ? qty : o[ck(p,"qty")]) * connLayers(o, p); }
+/* Human-readable derivation for the register's Formula column, so an
+   estimator auditing a line can see WHICH of the three modes produced it. */
+function connLenFormula(o, p, dia){
+  let mode = connLenMode(o, p), L = Math.round(connBarLenMm(o, p, dia));
+  if(mode === "manual") return `${L}mm (manual, off the schedule)`;
+  if(mode === "shape"){
+    let legs = connShapeLens(o,p).map(v => Math.round(num(v)));
+    return `${legs.join("+")}=${L}mm (sketched ${legs.length} leg${legs.length === 1 ? "" : "s"})`;
+  }
+  let hook = Math.round(anchorLen(o[ck(p,"hook")], dia || 12, o[ck(p,"custom")])), lap = num(o[ck(p,"lap")]);
+  return `embed ${num(o[ck(p,"embed")])}+proj ${num(o[ck(p,"proj")])}${hook ? `+hook ${hook}` : ""}${lap ? `+lap ${lap}` : ""}=${L}mm`;
+}
+function connLayerNote(o, p){ let n = connLayers(o, p); return n > 1 ? ` ×${n} layers` : ""; }
+/* ---- The shared editor. `fp` maps a field name to its data-field path, so
+   the same markup serves a top-level block (fp = name => name) and a table
+   row (fp = name => `connSets.3.${name}`). ---- */
+function connLenUI(o, p, fp, opts){
+  opts = opts || {};
+  let mode = connLenMode(o, p), dia = barDiaOf(o[ck(p,"dia")] || "N16");
+  let f = (name) => fp(ck(p, name));
+  let body;
+  if(mode === "manual"){
+    body = `<div class="grid cols4">${F("Total length of ONE bar (mm)", inpNum(f("lenMm"), o[ck(p,"lenMm")]))}</div>
+     <p class="small">Taken straight off the bar schedule. Embedment, projection, hooks and laps are assumed to be <b>already inside</b> this figure — nothing is added to it.</p>`;
+  } else if(mode === "shape"){
+    let has = connHasShape(o, p);
+    body = `<div class="toolbar" style="margin-bottom:8px;">
+      <button class="btn small primary" type="button" data-action="sketchConnBar" data-dirs="${f("dirs")}" data-lens="${f("lens")}">✏️ ${has ? "Re-sketch" : "Sketch"} the bar shape</button>
+      ${has ? `<button class="btn small ghost" type="button" data-action="clearConnBar" data-dirs="${f("dirs")}" data-lens="${f("lens")}">Clear the sketch</button>` : ""}
+     </div>
+     ${has ? `<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+       <div style="flex:1;min-width:200px;"><table class="rows"><thead><tr><th>Leg</th><th>Length (mm)</th></tr></thead>
+        <tbody>${o[ck(p,"dirs")].map((a, i) => `<tr><td><b>${String.fromCharCode(65 + i)}</b></td><td style="width:130px">${inpNum(`${f("lens")}.${i}`, connShapeLens(o,p)[i])}</td></tr>`).join("")}</tbody></table>
+        <p class="small">The stroke was straightened into legs <b>A–${String.fromCharCode(64 + o[ck(p,"dirs")].length)}</b>. Type each leg's TRUE length in mm off the drawing — one bar is the legs summed.</p></div>
+       <div style="flex:1;min-width:200px;" data-connbar-host="${f("lens")}">${polylineSVG(o[ck(p,"dirs")], connShapeLens(o,p), "one bar")}</div>
+      </div>`
+     : `<p class="small">Nothing sketched yet, so this set measures <b>0mm</b> and costs nothing. Draw the bar's profile in one stroke — down, across, down for a cranked dowel — then type each leg off the drawing.</p>`}`;
+  } else {
+    let custom = o[ck(p,"hook")] === "custom";
+    body = `<div class="grid cols4">
+      ${F(opts.embedLabel || "Embedment (mm)", inpNum(f("embed"), o[ck(p,"embed")]))}
+      ${F(opts.projLabel || "Projection (mm)", inpNum(f("proj"), o[ck(p,"proj")]))}
+      ${F("Hook / anchorage", selOpts(f("hook"), o[ck(p,"hook")], ANCHOR_OPTS, true))}
+      ${custom ? F("Custom hook allowance (mm)", inpNum(f("custom"), o[ck(p,"custom")])) : F("Lap (mm, 0 = none)", inpNum(f("lap"), o[ck(p,"lap")]))}
+     </div>${custom ? `<div class="grid cols4">${F("Lap (mm, 0 = none)", inpNum(f("lap"), o[ck(p,"lap")]))}</div>` : ""}`;
+  }
+  return `<div class="grid cols4">${F("How is this bar's length stated?", selOpts(f("lenMode"), mode, CONN_LEN_MODES, true))}${opts.hideLayers ? "" : F("Layers / rows of this bar", inpNum(f("layers"), o[ck(p,"layers")]))}</div>
+   ${body}
+   <p class="small">One bar = <b>${Math.round(connBarLenMm(o, p, dia))}mm</b> · ${connLenFormula(o, p, dia)}${connLayerNote(o, p)}</p>`;
+}
+/* ---- Additional sets, per starter block. `key` is the array's field name,
+   so a pier's extra starter sets and a pile cap's extra column-starter sets
+   live in separate arrays on the same element and never collide. ---- */
+function connSetDefault(){ return { label:"Additional set", qty:4, dia:"N16", lenMode:"derive", embed:400, proj:600, hook:"straight", lap:0, layers:1 }; }
+/* The Additional Connections table predates sets and named its description
+   `role`. Fold it into `label` on read so a takeoff saved before this change
+   opens with its descriptions intact. Idempotent — it only ever fills a
+   label that isn't there. */
+function normConnSet(r){ if(r && r.label === undefined && r.role !== undefined) r.label = r.role; return r; }
+function connSetsUI(inst, key, opts){
+  opts = opts || {};
+  let rows = getPath(inst.data, key);
+  if(!Array.isArray(rows)){ rows = []; setPath(inst.data, key, rows); }
+  return `<div class="subsec"><div class="sechead">${opts.title || "Additional bar sets"}</div>
+   <p class="small">${opts.intro || "A head detail is rarely one bar type. Add a set for every distinct bar — a hooked outer ring, a straight inner ring, a central coupler bar — rather than averaging them into the single row above. Each set states its own length however the drawing gives it."}</p>
+   ${rows.map(normConnSet).map((r, i) => `<div class="subsec" data-row="${key}.${i}" style="border-left:3px solid var(--danger);">
+     <div class="grid cols4">
+      ${F("Set label", inpText(`${key}.${i}.label`, r.label))}
+      ${F("Bars per layer", inpNum(`${key}.${i}.qty`, r.qty))}
+      ${F("Diameter", barSizeSel(`${key}.${i}.dia`, r.dia))}
+      ${F("Connects to", targetSelect(`${key}.${i}.target`, r.target, inst.id))}
+     </div>
+     ${connLenUI(r, "", (name) => `${key}.${i}.${name}`)}
+     <button class="btn small danger" data-action="delRow" data-target="${key}" data-idx="${i}">✕ Remove this set</button>
+    </div>`).join("")}
+   <button class="btn small" data-action="addRow" data-target="${key}">+ Add another bar set</button></div>`;
+}
+/* ---- One starter/dowel block, used by every element that has one. The
+   head row (target, bars, diameter) is fixed; how the LENGTH is stated is
+   connLenUI's business; and the additional-sets table underneath is what
+   makes a multi-layer detail expressible. Elements differ only in labels
+   and, occasionally, in counting bars off a spacing instead of a typed
+   quantity (`qtyField: null`) — everything else is shared. ---- */
+function starterBlockUI(inst, p, opts){
+  opts = opts || {};
+  let d = opts.data || inst.data;
+  let tf = opts.targetField || ck(p, "target");
+  let fp = opts.fp || ((n) => n);
+  let qf = opts.qtyField === undefined ? ck(p, "qty") : opts.qtyField;
+  return `<div class="grid cols4">
+    ${opts.hideTarget ? "" : F(opts.targetLabel || "Connects to (target element)", targetSelect(fp(tf), d[tf], inst.id, opts.filterCalc))}
+    ${qf === null ? "" : F(opts.qtyLabel || "Bars per layer", inpNum(fp(qf), d[qf]))}
+    ${F("Diameter", barSizeSel(fp(ck(p, "dia")), d[ck(p, "dia")]))}
+    ${opts.extraHead || ""}
+   </div>
+   ${connLenUI(d, p, fp, opts)}
+   ${opts.noSets ? "" : connSetsUI(inst, (opts.setsKey || fp(ck(p, "sets"))), { title: opts.setsTitle, intro: opts.setsIntro })}`;
+}
+/* ---- …and the ONE place those sets turn into register lines. ---- */
+function connSetsLines(inst, def, key, N, ctx){
+  ctx = ctx || {};
+  let out = [];
+  (getPath(inst.data, key) || []).map(normConnSet).forEach((r) => {
+    let dia = barDiaOf(r.dia || "N16");
+    let bars = connBarCount(r, "") * Math.max(1, num(N, 1));
+    let lenM = connBarLenMm(r, "", dia) / 1000;
+    let totLen = bars * lenM;
+    if(!(totLen > 0)) return;
+    let wt = totLen * massPerM(dia);
+    let tgt = targetLabelOf(r.target);
+    out.push(baseLine(inst, def, {
+      materialGroup: "Connections", material: r.dia || "N16",
+      spec: `${r.label || "Additional set"}${ctx.specSuffix || ""} → ${tgt || "(unlinked)"}`,
+      qty: totLen, unit: "m", waste: PROJECT.reoWaste, finalQty: withWaste(totLen, PROJECT.reoWaste),
+      formula: `${num(r.qty)}${connLayerNote(r, "")}${num(N, 1) > 1 ? `×${num(N, 1)}` : ""}×(${connLenFormula(r, "", dia)})/1000`,
+      linkedElement: tgt, notes: `${bars} bars, ${fmt(wt, 1)} kg`
+    }));
+  });
+  return out;
+}
 function concWastePct(d){ return (d.concreteWasteOverride===undefined||d.concreteWasteOverride==="")? PROJECT.concreteWaste : num(d.concreteWasteOverride); }
 function concSection(d,note){
   return `<div class="grid cols3">${F("Concrete grade (N/MPa)",inpNum("grade",d.grade))}${F(`Concrete waste % (blank = project default ${PROJECT.concreteWaste}%)`,inpNum("concreteWasteOverride",d.concreteWasteOverride))}</div>${note||""}`;
@@ -1858,7 +2029,7 @@ function pierDefaults(){ return {
   cover:PROJECT.cover, grade:PROJECT.grade,
   cage:true, vBars:8, vDia:"N20", cageLenAuto:true, cageLen:0, topProj:600, botAnchor:"straight", botCustom:0, topAnchor:"straight", topCustom:0, lap:false, lapLen:0, coupler:false,
   ligs:true, ligDia:"N10", genSpacing:200, topZone:600, topSpacing:100, botZone:600, botSpacing:100, hookDeg:135, ligLap:false,
-  starters:true, connTarget:"", connQty:8, connDia:"N20", connEmbed:800, connProj:900, connHook:"straight", connLap:1200, connCoupler:false
+  starters:true, connTarget:"", connQty:8, connDia:"N20", connEmbed:800, connProj:900, connHook:"straight", connLap:1200, connLayers:1
 };}
 function renderPier(inst){
   let d=inst.data;
@@ -1913,19 +2084,12 @@ function renderPier(inst){
   </div>`;
   let conns = `${chk("starters",d.starters,"Starter bars to pile cap / footing above","starters")}
   <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
-   <div class="grid cols4">
-    ${F("Connects to (target element)",targetSelect("connTarget",d.connTarget,inst.id))}
-    ${F("Quantity",inpNum("connQty",d.connQty))}
-    ${F("Diameter",barSizeSel("connDia",d.connDia))}
-    ${F("Embedment into pier (mm)",inpNum("connEmbed",d.connEmbed))}
-    ${F("Projection into cap (mm)",inpNum("connProj",d.connProj))}
-    ${F("Hook type",anchorSel("connHook",d.connHook))}
-    ${F("Lap (mm, 0=none)",inpNum("connLap",d.connLap))}
-    ${chk("connCoupler",d.connCoupler,"Coupler")}
-   </div>
+   ${starterBlockUI(inst,"conn",{embedLabel:"Embedment into pier (mm)",projLabel:"Projection into cap (mm)",
+     setsTitle:"Additional starter sets at this pier",
+     setsIntro:"A pier head is rarely one ring of bars. Add a set for each distinct bar — a hooked outer ring, a straight inner ring, a central coupler bar — instead of averaging them into the row above. Each set states its own length however the drawing gives it."})}
    <div class="tip"><span class="ico">🎓</span><div>Starter bars are a first-class element in this tool, not a footnote in a waste factor. Enter them once here, at the pier — pick the pile cap they connect to and the quantity flows through as "incoming" on the cap's Connections tab for visual continuity, but it is only ever costed once, at the source. This is the single most common double-counting error in a manual takeoff.</div></div>
   </div>`;
-  return {geom,conc,reo,form:`<p class="small">Bored piers cast against ground — no formwork typically required. Toggle if temporary casing/formwork used.</p>${chk('formworkReq',d.formworkReq,'Temporary casing / formwork required','formworkReq')}<div class="subsec ${d.formworkReq?'':'hidden'}" data-show-if="formworkReq">${F('Casing area override (m², 0=auto perimeter×depth)',inpNum('casingArea',d.casingArea||0))}</div>`, exc:`<div class="grid cols3">${F("Spoil factor (bulking %, 0=project default)",inpNum("bulkOverride",d.bulkOverride||0))}</div>`};
+  return {geom,conc,reo,conns,form:`<p class="small">Bored piers cast against ground — no formwork typically required. Toggle if temporary casing/formwork used.</p>${chk('formworkReq',d.formworkReq,'Temporary casing / formwork required','formworkReq')}<div class="subsec ${d.formworkReq?'':'hidden'}" data-show-if="formworkReq">${F('Casing area override (m², 0=auto perimeter×depth)',inpNum('casingArea',d.casingArea||0))}</div>`, exc:`<div class="grid cols3">${F("Spoil factor (bulking %, 0=project default)",inpNum("bulkOverride",d.bulkOverride||0))}</div>`};
 }
 function computePier(inst,def){
   let d=inst.data, lines=[], warnings=[];
@@ -1971,11 +2135,12 @@ function computePier(inst,def){
   }
   if(d.starters){
     let dia=barDiaOf(d.connDia);
-    let len=(num(d.connEmbed)+num(d.connProj)+anchorLen(d.connHook,dia,0)+num(d.connLap))/1000;
-    let totLen = num(d.connQty)*N*len;
+    let bars=connBarCount(d,"conn")*N;
+    let totLen=bars*connBarLenMm(d,"conn",dia)/1000;
     let wt=totLen*massPerM(dia);
     let targetLabel = targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars → "+(targetLabel||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×${N}×(embed ${d.connEmbed}+proj ${d.connProj}+lap ${d.connLap})/1000`,linkedElement:targetLabel,notes:`${fmt(wt,1)} kg — counted once at source`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars → "+(targetLabel||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:targetLabel,notes:`${bars} bars, ${fmt(wt,1)} kg — counted once at source`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (pier starters)"}));
   }
   if(d.formworkReq){
     let area = num(d.casingArea)>0? num(d.casingArea) : N*Math.PI*(D/1000)*(H/1000);
@@ -2133,13 +2298,12 @@ function renderPilesCapTab(inst){
    <div class="sechead">Starters &amp; dowels</div>
    <div class="grid cols4">
     ${chk("cap.colStarters", c.colStarters, "Column starters out of the cap")}
-    ${F("Quantity per cap", inpNum("cap.colQty", c.colQty))}
+    ${F("Bars per cap", inpNum("cap.colQty", c.colQty))}
     ${F("Diameter", barSizeSel("cap.colDia", c.colDia))}
-    ${F("Embedment into cap (mm)", inpNum("cap.colEmbed", c.colEmbed))}
-    ${F("Projection into column (mm)", inpNum("cap.colProj", c.colProj))}
-    ${F("Hook type", anchorSel("cap.colHook", c.colHook))}
-    ${F("Lap (mm, 0 = none)", inpNum("cap.colLap", c.colLap))}
    </div>
+   ${connLenUI(c, "col", (n) => "cap." + n, {embedLabel:"Embedment into cap (mm)", projLabel:"Projection into column (mm)"})}
+   ${connSetsUI(inst, "cap.colSets", {title:"Additional column starter sets",
+     intro:"Two columns on one cap, or a cage that is not one uniform bar, is more than one set. Add each — its own count, diameter and length — rather than averaging them into the row above."})}
    <p class="small">Dowels UP from the piles into this cap live on the <b>Connections / Dowels</b> tab — entered once at the pile so the cap never doubles them.</p>
 
    <div class="sechead">Blinding &amp; excavation</div>
@@ -2305,7 +2469,7 @@ function pileSupplyDefaults(shape){ return {
   // pile still has to be tied into whatever caps it, so this carries the same
   // detailing the bored pier has — see renderPileSupply's `conns`.
   starters:true, connTarget:"", connQty:4, connDia:"N20", connEmbed:600, connProj:900,
-  connHook:"straight", connLap:0, connCoupler:false
+  connHook:"straight", connLap:0, connLayers:1
 };}
 
 function renderPileSupply(inst){
@@ -2360,12 +2524,10 @@ function renderPileSupply(inst){
     ${F("Connects to (pile cap / capping beam)", targetSelect("connTarget", d.connTarget, inst.id, ["pilecap","beam"]))}
     ${F("Bars per pile", inpNum("connQty", d.connQty))}
     ${F("Diameter", barSizeSel("connDia", d.connDia))}
-    ${F("Embedment into pile (mm)", inpNum("connEmbed", d.connEmbed))}
-    ${F("Projection into cap (mm)", inpNum("connProj", d.connProj))}
-    ${F("Hook type", anchorSel("connHook", d.connHook))}
-    ${F("Lap (mm, 0 = none)", inpNum("connLap", d.connLap))}
-    ${chk("connCoupler", d.connCoupler, "Coupler")}
    </div>
+   ${connLenUI(d, "conn", (n) => n, {embedLabel:"Embedment into pile (mm)", projLabel:"Projection into cap (mm)"})}
+   ${connSetsUI(inst, "connSets", {title:"Additional dowel sets at the pile head",
+     intro:"A cut-down precast head often takes a different bar from the cast-in group — chemically anchored rather than cast in, and a different length. Add a set for each."})}
    <div class="tip"><span class="ico">🎓</span><div>Same rule as a bored pier: enter the dowels <b>once, here at the pile</b>, and pick the cap or capping beam they run into. They are counted on this element, so the cap does not double them up. On a precast pile these are usually cast into the head or drilled and chemically anchored after the pile is cut down — the embedment field is what tells them apart.</div></div>
   </div>`;
 
@@ -2445,8 +2607,8 @@ function computePileSupply(inst, def){
   // precast pile and a bored pier detailed identically give the same steel.
   if(d.starters && qty > 0){
     const dia = barDiaOf(d.connDia);
-    const each = (num(d.connEmbed) + num(d.connProj) + anchorLen(d.connHook, dia, 0) + num(d.connLap)) / 1000;
-    const totLen = num(d.connQty) * qty * each;
+    const bars = connBarCount(d, "conn") * qty;
+    const totLen = bars * connBarLenMm(d, "conn", dia) / 1000;
     if(totLen > 0){
       const targetLabel = targetLabelOf(d.connTarget);
       lines.push(baseLine(inst, def, {materialGroup:"Connections", material:d.connDia,
@@ -2524,10 +2686,11 @@ function renderPileCap(inst){
   <div class="subsec ${d.sideBars?'':'hidden'}" data-show-if="sideBars"><div class="grid cols3">${F("Dia",barSizeSel("sideDia",d.sideDia))}${F("Spacing (mm)",inpNum("sideSpacing",d.sideSpacing))}${chk("sideLap",d.sideLap,"Include lap allowance (%)","sideLap")}</div>
   ${isBeam?`<p class="small">Closed stirrups at the entered spacing along the full beam length — perimeter taken from the beam's width × depth less cover.</p>`:`<p class="small">Horizontal bars running the cap's full perimeter, spaced vertically over the depth — the crack-control bars on deep caps that never appear in the top/bottom mat schedule.</p>`}</div>`;
   let conns=`${chk("colStarters",d.colStarters,"Column starters (out)","colStarters")}
-  <div class="subsec ${d.colStarters?'':'hidden'}" data-show-if="colStarters"><div class="grid cols4">
-   ${F("Connects to (column)",targetSelect("colTarget",d.colTarget,inst.id))}${F("Quantity",inpNum("colQty",d.colQty))}${F("Diameter",barSizeSel("colDia",d.colDia))}
-   ${F("Embedment (mm)",inpNum("colEmbed",d.colEmbed))}${F("Projection (mm)",inpNum("colProj",d.colProj))}${F("Hook",anchorSel("colHook",d.colHook))}${F("Lap (mm)",inpNum("colLap",d.colLap))}
-  </div></div>
+  <div class="subsec ${d.colStarters?'':'hidden'}" data-show-if="colStarters">
+   ${starterBlockUI(inst,"col",{targetLabel:"Connects to (column)",embedLabel:"Embedment into cap (mm)",projLabel:"Projection into column (mm)",
+     setsTitle:"Additional column starter sets",
+     setsIntro:"More than one column landing on this cap, or a column cage that is not one uniform bar? Add a set each — its own count, diameter and length."})}
+  </div>
   <div class="subsec"><div class="sechead">Incoming from linked pier</div>${incomingStarters(d.linkTarget)}</div>`;
   let form=`<p class="small">Pick anywhere from none (fully cast against ground, oversized excavation) to all 4 sides (formed in open excavation with clearance).</p>
   ${faceRow([["formA","Face A (long side 1) — L×D"],["formB","Face B (long side 2) — L×D"],["formC","Face C (end 1) — W×D"],["formD","Face D (end 2) — W×D"]],d)}`;
@@ -2607,10 +2770,11 @@ function computePileCap(inst,def){
   if(fArea>0) lines.push(baseLine(inst,def,{materialGroup:"Formwork",material:"Side formwork",spec:`${fFaces.length} of 4 faces (${fFaces.join(',')})`,qty:fArea,unit:"m²",waste:PROJECT.formworkWaste,finalQty:withWaste(fArea,PROJECT.formworkWaste),formula:`${N}×selected faces×D`}));
   if(d.colStarters){
     let dia=barDiaOf(d.colDia);
-    let len=(num(d.colEmbed)+num(d.colProj)+anchorLen(d.colHook,dia,0)+num(d.colLap))/1000;
-    let totLen=num(d.colQty)*N*len; let wt=totLen*massPerM(dia);
+    let bars=connBarCount(d,"col")*N;
+    let totLen=bars*connBarLenMm(d,"col",dia)/1000; let wt=totLen*massPerM(dia);
     let tgt=targetLabelOf(d.colTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.colDia,spec:"Column starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.colQty}×${N}×(embed+proj+hook+lap)/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.colDia,spec:"Column starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.colQty)}${connLayerNote(d,"col")}×${N}×(${connLenFormula(d,"col",dia)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"colSets",N,{specSuffix:" (column starters)"}));
   }
   return {lines,warnings:[]};
 }
@@ -2665,16 +2829,17 @@ function renderStripFooting(inst){
   ${layerTypeSelects(d,"trenchMeshLayers","trenchMeshType","trenchMeshLayerTypes",trenchMeshTypeSel,"trench mesh type")}
   <p class="small">Trench mesh is priced and ordered by the metre (a welded strip of longitudinal bars run the length of the trench), not by sheet area — this counts it the same way as any other run of bars. Same named types as Quotes' own Trench Mesh catalog. Layers &gt; 1 stacks that many mesh strips — each layer can be its own product, and steel quantities follow per material. Lap allowance is off by default (a single continuous mesh strip laid the trench's own run length usually needs none) — turn it on if this run is spliced from more than one length and needs the project's lap % (Defaults &amp; Rules) added.</p></div>`;
   let conns=`${chk("starters",d.starters,"Starter bars / dowels up (to wall or column)","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">
-   ${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Qty",inpNum("connQty",d.connQty))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}
-  </div></div>
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{setsTitle:"Additional starter / dowel sets",
+     setsIntro:"One footing usually carries several different starter groups along its run — a wall starter at 300 centres, a column cage at one end, a pier starter at another. Add a set for each rather than one averaged row."})}
+  </div>
   `;
   let steps=`<div class="sechead">Stepped Footing (step-downs on sloping ground)</div>
   ${chk("stepdown",d.stepdown,"Footing steps down along its run","stepdown")}
   <div class="subsec ${d.stepdown?'':'hidden'}" data-show-if="stepdown"><div class="grid cols4">
    ${F("Total step-down length (m)",inpNum("sdLength",d.sdLength))}${F("Step depth (mm)",inpNum("sdDepth",d.sdDepth))}${F("Dowel size",barSizeSel("sdDia",d.sdDia))}${F("Spacing (mm)",inpNum("sdSpacing",d.sdSpacing))}
   </div>${sdBarShapeUI(d,num(d.sdProj1,500)+num(d.sdProj2,500))}${sdSetupFields(d)}<div class="tip"><span class="ico">🏗️</span><div>Enter the TOTAL length of stepped footing (sum of every step run along the trench). Dowels are spaced over that length and the vertical step faces get their own formwork line — both the items a stepped strip footing adds over a level one.</div></div></div>`;
-  return {geom,conc:concSection(d,"<p class='small'>Concrete = length × width × depth</p>"),reo:reo+steps,form,exc:"<p class='small'>Excavation = length × trench width × excavation depth</p>",blind:blindingSection(d)};
+  return {geom,conc:concSection(d,"<p class='small'>Concrete = length × width × depth</p>"),reo:reo+steps,conns,form,exc:"<p class='small'>Excavation = length × trench width × excavation depth</p>",blind:blindingSection(d)};
 }
 function computeStripFooting(inst,def){
   let d=inst.data, lines=[];
@@ -2751,10 +2916,12 @@ function computeStripFooting(inst,def){
     });
   }
   if(d.starters){
-    let bd=barDiaOf(d.connDia); let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen=num(d.connQty)*N*len; let wt=totLen*massPerM(bd);
+    let bd=barDiaOf(d.connDia);
+    let bars=connBarCount(d,"conn")*N;
+    let totLen=bars*connBarLenMm(d,"conn",bd)/1000; let wt=totLen*massPerM(bd);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×${N}×(embed+proj)/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",bd)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (starters)"}));
   }
   return {lines,warnings:[]};
 }
@@ -2837,9 +3004,11 @@ function renderPadFooting(inst){
   </div></div>
   <div class="sechead" style="margin-top:10px;">Cast-in Items</div><div class="grid cols4">${chk("anchorBolts",d.anchorBolts,"Anchor bolts")}${chk("holdDown",d.holdDown,"Hold-down bolts")}${chk("ferrules",d.ferrules,"Ferrules")}${chk("plates",d.plates,"Cast-in plates")}${chk("boltTemplate",d.boltTemplate,"Bolt template")}</div>`;
   let conns=`${chk("starters",d.starters,"Column starter bars","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">
-   ${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Qty",inpNum("connQty",d.connQty))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}${F("Hook",anchorSel("connHook",d.connHook))}
-  </div></div>`;
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{targetLabel:"Connects to (column above)",
+     setsTitle:"Additional starter sets",
+     setsIntro:"A column cage off a pad is often two rings of different bars, and a pad under two columns is two sets. Add each one here."})}
+  </div>`;
   return {geom,conc:concSection(d,"<p class='small'>Concrete = qty × plan area × D (+ pedestal if present). Plan area: L×W rectangular, π×Ø²/4 round.</p>"),reo,form:cast,exc:"<p class='small'>Excavation = qty × oversized plan area × excavation depth (oversize added to each side / the diameter).</p>",blind:blindingSection(d),conns};
 }
 function computePadFooting(inst,def){
@@ -2941,10 +3110,11 @@ function computePadFooting(inst,def){
   });
   if(d.starters){
     let bd=barDiaOf(d.connDia);
-    let len=(num(d.connEmbed)+num(d.connProj)+anchorLen(d.connHook,bd,0))/1000;
-    let totLen=num(d.connQty)*N*len; let wt=totLen*massPerM(bd);
+    let bars=connBarCount(d,"conn")*N;
+    let totLen=bars*connBarLenMm(d,"conn",bd)/1000; let wt=totLen*massPerM(bd);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Column starters → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×${N}×len/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Column starters → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",bd)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (column starters)"}));
   }
   return {lines,warnings:[]};
 }
@@ -2994,9 +3164,10 @@ function renderBeam(inst,def){
   <p class="small">Diagram below is to scale along the beam length — a fast visual check that support/midspan zones and ligature counts look right.</p>
   <div class="ligDiagHost">${ligDiagramFor(inst)}</div>`;
   let conns=`${chk("starters",d.starters,"Dowels / continuity bars to column or wall below","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">
-   ${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Qty",inpNum("connQty",d.connQty))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}
-  </div></div>
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{setsTitle:"Additional dowel / continuity sets",
+     setsIntro:"A beam usually meets more than one thing below it. Add a set per connection — each with its own count, bar and length."})}
+  </div>
   `;
   let steps=`<div class="sechead">Step-down / Construction-joint Connecting Bars</div>
   ${chk("stepdown",d.stepdown,"This beam steps down / has a level change requiring connecting dowels","stepdown")}
@@ -3161,10 +3332,12 @@ function computeBeam(inst,def){
     lines.push(baseLine(inst,def,{materialGroup:"Reinforcement",material:z.dia,spec:`Ligatures — ${z.zone}`,qty:totLen,unit:"m",waste:PROJECT.reoWaste,lap:zLapPct,finalQty:withWasteLap(totLen,PROJECT.reoWaste,zLapPct),formula:`${count}×${N} ligs × (perim ${fmt(ligPerimeter-2*hookExt,2)}m + 2×135° hooks ${fmt(2*hookExt,2)}m) (+${PROJECT.reoWaste}% waste${zLapPct?`, +${zLapPct}% lap`:''})`,notes:`${count*N} no., ${fmt(wt,1)} kg`}));
   });
   if(d.starters){
-    let bd=barDiaOf(d.connDia); let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen=num(d.connQty)*N*len; let wt=totLen*massPerM(bd);
+    let bd=barDiaOf(d.connDia);
+    let bars=connBarCount(d,"conn")*N;
+    let totLen=bars*connBarLenMm(d,"conn",bd)/1000; let wt=totLen*massPerM(bd);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Dowels/continuity → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×${N}×len/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Dowels/continuity → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",bd)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (dowels)"}));
   }
   if(d.stepdown){
     let bd=barDiaOf(d.sdDia);
@@ -3375,9 +3548,10 @@ function renderSlab(inst,def){
    </div>
    <div class="subsec ${d.dowels?'':'hidden'}" data-show-if="dowels"><div class="grid cols3">${F("Dowel size",barSizeSel("dowelDia",d.dowelDia))}${F("Spacing (mm)",inpNum("dowelSpacing",d.dowelSpacing))}${F("Total dowel length (mm, both sides of joint)",inpNum("dowelLength",d.dowelLength))}</div></div></div>`;
   let conns=`${chk("starters",d.starters,"Starter bars in from footing/wall below","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">
-   ${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Qty",inpNum("connQty",d.connQty))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}
-  </div></div>`;
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{setsTitle:"Additional starter sets in",
+     setsIntro:"A slab picks up starters from every wall, column and footing it lands on. Add a set per source rather than one averaged row."})}
+  </div>`;
   let steps = `<div class="sechead">Step-down / Level Change</div>
   ${chk("stepdown",d.stepdown,"Slab has a step-down / level change requiring connecting dowels","stepdown")}
   <div class="subsec ${d.stepdown?'':'hidden'}" data-show-if="stepdown"><div class="grid cols4">
@@ -3594,11 +3768,13 @@ function computeSlab(inst,def){
       lines.push(baseLine(inst,def,{materialGroup:"Joints",material:d.dowelDia,spec:"Joint dowels",qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`joints × dowels/joint × ${d.dowelLength}mm`,notes:`${fmt(wt,1)} kg`}));
     }
   }
-  if(d.starters && num(d.connQty)>0){
-    let dia=barDiaOf(d.connDia); let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen=num(d.connQty)*len; let wt=totLen*massPerM(dia);
+  if(d.starters){
+    let dia=barDiaOf(d.connDia);
+    let bars=connBarCount(d,"conn");
+    let totLen=bars*connBarLenMm(d,"conn",dia)/1000; let wt=totLen*massPerM(dia);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Incoming starters → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×len/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Incoming starters → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",1,{specSuffix:" (starters in)"}));
   }
   if(d.stepdown){
     let dia=barDiaOf(d.sdDia);
@@ -3643,7 +3819,9 @@ function renderColumn(inst){
   <p class="small">To-scale check of top/mid/bottom confinement zones and ligature counts.</p>
   <div class="ligDiagHost">${ligDiagramFor(inst)}</div>`;
   let conns=`<div class="grid cols4">${F("Receives starters from (below)",targetSelect("startersIn",d.startersIn,inst.id))}${F("Continues to (above, dowels/coupler/lap)",targetSelect("dowelsOut",d.dowelsOut,inst.id))}${F("Lap/coupler at top",selOpts("lapType",d.lapType,[["lap","Lap"],["coupler","Coupler"],["starter","Starter for next lift"]]))}</div>
-  <div class="grid cols4">${F("Out qty",inpNum("connQty",d.connQty))}${F("Out dia",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}</div>`;
+  ${starterBlockUI(inst,"conn",{hideTarget:true,qtyLabel:"Bars out per layer",embedLabel:"Embedment (mm)",projLabel:"Projection (mm)",
+    setsTitle:"Additional bars out of the column head",
+    setsIntro:"A column head continuing into a beam, a slab and a next lift is three different bar groups. Add a set for each."})}`;
   return {geom,conc:concSection(d,"<p class='small'>Concrete = qty × B×D×H (or π/4×dia²×H for circular)</p>"),reo,conns};
 }
 function computeColumn(inst,def){
@@ -3680,10 +3858,12 @@ function computeColumn(inst,def){
     lines.push(baseLine(inst,def,{materialGroup:"Reinforcement",material:d.ctDia,spec:"Cross ties",qty:ctLen,unit:"m",waste:PROJECT.reoWaste,lap:ctLapPct,finalQty:withWasteLap(ctLen,PROJECT.reoWaste,ctLapPct),formula:`tie sets × qty × width (+${PROJECT.reoWaste}% waste${ctLapPct?`, +${ctLapPct}% lap`:''})`,notes:`${fmt(ctWt,1)} kg`}));
   }
   let tgtOut=targetLabelOf(d.dowelsOut);
-  if(tgtOut){
-    let dia=barDiaOf(d.connDia); let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen2=num(d.connQty)*N*len; let wt2=totLen2*massPerM(dia);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:`${d.lapType} to next element → `+tgtOut,qty:totLen2,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen2,PROJECT.reoWaste),formula:`${d.connQty}×${N}×len/1000`,linkedElement:tgtOut,notes:`${fmt(wt2,1)} kg`}));
+  {
+    let dia=barDiaOf(d.connDia);
+    let bars=connBarCount(d,"conn")*N;
+    let totLen2=bars*connBarLenMm(d,"conn",dia)/1000; let wt2=totLen2*massPerM(dia);
+    if(tgtOut && totLen2>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:`${d.lapType} to next element → `+tgtOut,qty:totLen2,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen2,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:tgtOut,notes:`${bars} bars, ${fmt(wt2,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (out of column head)"}));
   }
   return {lines,warnings:[]};
 }
@@ -3710,8 +3890,16 @@ function renderWall(inst){
   let reo=`<div class="sechead">Face A</div><div class="grid cols4">${chk("vertA",d.vertA,"Vertical")}${F("Dia",barSizeSel("vertADia",d.vertADia))}${F("Spacing",inpNum("vertASpacing",d.vertASpacing))}${chk("vertALap",d.vertALap,"Include lap allowance (%)","vertALap")}${chk("horA",d.horA,"Horizontal")}${F("Dia",barSizeSel("horADia",d.horADia))}${F("Spacing",inpNum("horASpacing",d.horASpacing))}${chk("horALap",d.horALap,"Include lap allowance (%)","horALap")}</div>
   <div class="sechead">Face B</div><div class="grid cols4">${chk("vertB",d.vertB,"Vertical")}${F("Dia",barSizeSel("vertBDia",d.vertBDia))}${F("Spacing",inpNum("vertBSpacing",d.vertBSpacing))}${chk("vertBLap",d.vertBLap,"Include lap allowance (%)","vertBLap")}${chk("horB",d.horB,"Horizontal")}${F("Dia",barSizeSel("horBDia",d.horBDia))}${F("Spacing",inpNum("horBSpacing",d.horBSpacing))}${chk("horBLap",d.horBLap,"Include lap allowance (%)","horBLap")}</div>`;
   let conns=`${chk("starters",d.starters,"Starter bars in (from footing below)","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Spacing (mm)",inpNum("connSpacing",d.connSpacing))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}</div></div>
-  <div class="subsec"><div class="sechead">Dowels out (to slab above)</div><div class="grid cols4">${F("Connects to",targetSelect("dowelsOut",d.dowelsOut,inst.id))}${F("Qty",inpNum("outQty",d.outQty))}${F("Dia",barSizeSel("outDia",d.outDia))}${F("Embedment (mm)",inpNum("outEmbed",d.outEmbed))}${F("Projection (mm)",inpNum("outProj",d.outProj))}</div></div>
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{qtyField:null,extraHead:F("Spacing along the wall (mm)",inpNum("connSpacing",d.connSpacing)),
+     setsTitle:"Additional starter sets in",
+     setsIntro:"Bars counted off the spacing above are one group. Anything else the wall starts off — a different bar at the ends, a second layer at a return — is its own set, counted by number rather than spacing."})}
+  </div>
+  <div class="subsec"><div class="sechead">Dowels out (to slab above)</div>
+   ${starterBlockUI(inst,"out",{targetField:"dowelsOut",targetLabel:"Connects to",qtyLabel:"Bars out per layer",
+     setsTitle:"Additional dowel sets out",
+     setsIntro:"A wall head running into a slab, an upstand and a next lift is three groups, not one."})}
+  </div>
   `;
   let steps=`<div class="sechead">Step-down / Construction-joint Connecting Bars</div>
   ${chk("stepdown",d.stepdown,"Wall steps down / has level change requiring connecting dowels","stepdown")}
@@ -3751,17 +3939,20 @@ function computeWall(inst,def){
   barCalc(d.vertA,d.vertADia,d.vertASpacing,d.vertALap,d.horA,d.horADia,d.horASpacing,d.horALap,"Face A");
   barCalc(d.vertB,d.vertBDia,d.vertBSpacing,d.vertBLap,d.horB,d.horBDia,d.horBSpacing,d.horBLap,"Face B");
   if(d.starters){
-    let dia=barDiaOf(d.connDia); let count=Math.floor(num(d.length)/num(d.connSpacing))+1;
-    let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen=N*count*len; let wt=totLen*massPerM(dia);
+    let dia=barDiaOf(d.connDia); let count=Math.floor(num(d.length)/Math.max(1,num(d.connSpacing,200)))+1;
+    let bars=N*count*connLayers(d,"conn");
+    let totLen=bars*connBarLenMm(d,"conn",dia)/1000; let wt=totLen*massPerM(dia);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars in → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`count(${count})×len×${N}`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars in → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`count(${count} @${num(d.connSpacing,200)}mm)${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (starters in)"}));
   }
   let tgtOut=targetLabelOf(d.dowelsOut);
-  if(tgtOut && num(d.outQty)>0){
-    let dia=barDiaOf(d.outDia); let len=(num(d.outEmbed)+num(d.outProj))/1000;
-    let totLen=num(d.outQty)*N*len; let wt=totLen*massPerM(dia);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.outDia,spec:"Dowels out → "+tgtOut,qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.outQty}×${N}×len/1000`,linkedElement:tgtOut,notes:`${fmt(wt,1)} kg`}));
+  {
+    let dia=barDiaOf(d.outDia);
+    let bars=connBarCount(d,"out")*N;
+    let totLen=bars*connBarLenMm(d,"out",dia)/1000; let wt=totLen*massPerM(dia);
+    if(tgtOut && totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.outDia,spec:"Dowels out → "+tgtOut,qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.outQty)}${connLayerNote(d,"out")}×${N}×(${connLenFormula(d,"out",dia)})/1000`,linkedElement:tgtOut,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"outSets",N,{specSuffix:" (dowels out)"}));
   }
   if(d.waterstop) lines.push(baseLine(inst,def,{materialGroup:"Joints",material:"PVC waterstop",spec:"At construction joints",qty:N*Lm,unit:"m",waste:5,finalQty:withWaste(N*Lm,5),formula:"wall length"}));
   if(d.stepdown){
@@ -3783,7 +3974,7 @@ function computeWall(inst,def){
 
 /* ---- RETAINING WALL (compound) ---- */
 function retWallDefaults(){ return {
-  footingSource:"compound", footingTarget:"", stemStarterQty:0, stemStarterDia:"N16", stemStarterEmbed:400,
+  footingSource:"compound", footingTarget:"", stemStarterQty:0, stemStarterDia:"N16", stemStarterEmbed:400, stemStarterProj:400,
   length:10000, cover:PROJECT.cover, grade:PROJECT.grade,
   footL:1800, footD:500, heel:900, toe:300, key:false, keyD:200, keyW:200,
   stemH:2400, stemT:250,
@@ -3799,7 +3990,10 @@ function renderRetWall(inst){
   <div class="sechead">Footing Source</div>
   <div class="grid cols3">${F("Footing is",selOpts("footingSource",d.footingSource,[["compound","Cast as part of this element (compound)"],["linked","Already exists — sits on an existing Strip Footing / Ground Beam / Pile Cap"]]))}</div>
   <div class="subsec ${d.footingSource=='linked'?'':'hidden'}" data-show-if="footingSource_linked">
-   <div class="grid cols4">${F("Existing footing/beam element",targetSelect("footingTarget",d.footingTarget,inst.id))}${F("Stem starter bars into it (no.)",inpNum("stemStarterQty",d.stemStarterQty))}${F("Starter dia",barSizeSel("stemStarterDia",d.stemStarterDia))}${F("Embedment (mm)",inpNum("stemStarterEmbed",d.stemStarterEmbed))}</div>
+   ${starterBlockUI(inst,"stemStarter",{targetField:"footingTarget",targetLabel:"Existing footing/beam element",
+     qtyLabel:"Stem starter bars into it (no.)",embedLabel:"Embedment into the existing footing (mm)",projLabel:"Projection up the stem (mm)",
+     setsTitle:"Additional stem starter sets",
+     setsIntro:"A two-layer stem starts two rows of bars, and a stepped footing starts a different bar at each level. Add a set for each."})}
    <div class="tip"><span class="ico">🏗️</span><div>Use this when the retaining wall stem lands on a strip footing, ground beam or pile cap that's already been taken off as its own element elsewhere in this project — very common where the retaining wall is really just an upstand off an existing foundation. Only the stem (+ starters into the existing footing) is counted here; the footing's own concrete, reinforcement and excavation stay with that other element so nothing is counted twice.</div></div>
   </div>
   <div class="subsec ${d.footingSource=='compound'?'':'hidden'}" data-show-if="footingSource_compound">
@@ -3817,7 +4011,10 @@ function renderRetWall(inst){
   <div class="sechead">Stem Reinforcement (each face)</div><div class="grid cols4">${F("Vertical dia",barSizeSel("stemVertDia",d.stemVertDia))}${F("Spacing",inpNum("stemVertSp",d.stemVertSp))}${F("Horizontal dia",barSizeSel("stemHorDia",d.stemHorDia))}${F("Spacing",inpNum("stemHorSp",d.stemHorSp))}</div>
   <div class="grid cols3">${chk("stemVertLap",d.stemVertLap,"Vertical — include lap allowance (%)","stemVertLap")}${chk("stemHorLap",d.stemHorLap,"Horizontal — include lap allowance (%)","stemHorLap")}</div>
   <div class="grid cols3">${chk("waterstop",d.waterstop,"Waterstop at footing/stem joint")}</div>`;
-  let conns=`<div class="subsec"><div class="sechead">Dowels out (to slab, wall or element above the stem)</div><div class="grid cols4">${F("Connects to",targetSelect("dowelsOut",d.dowelsOut,inst.id))}${F("Qty",inpNum("outQty",d.outQty))}${F("Dia",barSizeSel("outDia",d.outDia))}${F("Embedment (mm)",inpNum("outEmbed",d.outEmbed))}${F("Projection (mm)",inpNum("outProj",d.outProj))}</div></div>
+  let conns=`<div class="subsec"><div class="sechead">Dowels out (to slab, wall or element above the stem)</div>
+   ${starterBlockUI(inst,"out",{targetField:"dowelsOut",targetLabel:"Connects to",qtyLabel:"Bars out per layer",
+     setsTitle:"Additional dowel sets out of the stem",
+     setsIntro:"Add a set for every distinct group of bars leaving the top of the stem."})}</div>
   <div class="tip"><span class="ico">🏗️</span><div>Stem starters into an existing (linked) footing are set on the Geometry tab under Footing Source. This section is for what lands on <b>top</b> of the stem — a slab, upstand wall or balustrade continuing above.</div></div>`;
   return {geom,conc:concSection(d, d.footingSource=='linked'? "<p class='small'>Concrete = stem only — footing belongs to the linked element.</p>" : "<p class='small'>Footing + stem + heel/toe + key, one compound element.</p>"),reo,conns};
 }
@@ -3833,10 +4030,15 @@ function computeRetWall(inst,def){
   if(linked){
     let tgt=targetLabelOf(d.footingTarget);
     lines.push(baseLine(inst,def,{materialGroup:"Concrete",material:"(reference only)",spec:"Footing concrete/reinforcement/excavation counted at linked element — not duplicated here",qty:0,unit:"",waste:0,finalQty:0,formula:"",linkedElement:tgt}));
-    if(num(d.stemStarterQty)>0){
-      let dia=barDiaOf(d.stemStarterDia); let len=num(d.stemStarterEmbed)/1000+0.4;
-      let totLen=Math.floor(num(d.length)/200)*len; let wt=totLen*massPerM(dia);
-      lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.stemStarterDia,spec:"Stem starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:"bars along length × (embed+lap)/1000",linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    {
+      // Pre-sets takeoffs stored no projection because the old formula added
+      // a flat 400mm of lap itself. Seed it so the length doesn't shrink.
+      if(d.stemStarterProj===undefined) d.stemStarterProj=400;
+      let dia=barDiaOf(d.stemStarterDia);
+      let bars=connBarCount(d,"stemStarter")||Math.floor(num(d.length)/200)*connLayers(d,"stemStarter");
+      let totLen=bars*connBarLenMm(d,"stemStarter",dia)/1000; let wt=totLen*massPerM(dia);
+      if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.stemStarterDia,spec:"Stem starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${bars} bars ×(${connLenFormula(d,"stemStarter",dia)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+      lines.push(...connSetsLines(inst,def,"stemStarterSets",1,{specSuffix:" (stem starters)"}));
     }
   } else {
     let excVol=Lm*(num(d.footL)/1000+0.3)*(num(d.footD)/1000+0.15);
@@ -3865,10 +4067,12 @@ function computeRetWall(inst,def){
   let formArea = linked? 2*Lm*(num(d.stemH)/1000) : (2*Lm*(num(d.stemH)/1000)+2*Lm*(num(d.footD)/1000));
   lines.push(baseLine(inst,def,{materialGroup:"Formwork",material:linked?"Stem formwork":"Footing + stem formwork",spec:"",qty:formArea,unit:"m²",waste:PROJECT.formworkWaste,finalQty:withWaste(formArea,PROJECT.formworkWaste),formula:linked?"2×L×stemH":"2×L×stemH + 2×L×footD"}));
   let tgtOut=targetLabelOf(d.dowelsOut);
-  if(tgtOut && num(d.outQty)>0){
-    let dia=barDiaOf(d.outDia); let outLen=(num(d.outEmbed)+num(d.outProj))/1000;
-    let totLen=num(d.outQty)*outLen; let wt=totLen*massPerM(dia);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.outDia,spec:"Dowels out → "+tgtOut,qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.outQty}×(embed ${d.outEmbed}+proj ${d.outProj})/1000`,linkedElement:tgtOut,notes:`${fmt(wt,1)} kg`}));
+  {
+    let dia=barDiaOf(d.outDia);
+    let bars=connBarCount(d,"out");
+    let totLen=bars*connBarLenMm(d,"out",dia)/1000; let wt=totLen*massPerM(dia);
+    if(tgtOut && totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.outDia,spec:"Dowels out → "+tgtOut,qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.outQty)}${connLayerNote(d,"out")}×(${connLenFormula(d,"out",dia)})/1000`,linkedElement:tgtOut,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"outSets",1,{specSuffix:" (dowels out)"}));
   }
   return {lines,warnings:[]};
 }
@@ -3891,8 +4095,15 @@ function renderShotWall(inst){
   ${layerTypeSelects(d,"meshLayers","meshType","meshLayerTypes",(f,v)=>selOpts(f,v,Object.keys(MESHTYPES).map(m=>[m,m])),"mesh type")}
   <p class="small">Central mesh layer(s) across the full wall face — sprayed walls are typically single-face-mesh, not two independent faces like a formed wall.</p>`;
   let conns=`${chk("starters",d.starters,"Starter bars / dowels in (from footing or pier below)","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Qty",inpNum("connQty",d.connQty))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}</div></div>
-  <div class="subsec"><div class="sechead">Dowels out (to slab or wall above)</div><div class="grid cols4">${F("Connects to",targetSelect("dowelsOut",d.dowelsOut,inst.id))}${F("Qty",inpNum("outQty",d.outQty))}${F("Dia",barSizeSel("outDia",d.outDia))}${F("Embedment (mm)",inpNum("outEmbed",d.outEmbed))}${F("Projection (mm)",inpNum("outProj",d.outProj))}</div></div>
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{setsTitle:"Additional starter sets in",
+     setsIntro:"Add a set for each distinct group of bars coming into the wall from below."})}
+  </div>
+  <div class="subsec"><div class="sechead">Dowels out (to slab or wall above)</div>
+   ${starterBlockUI(inst,"out",{targetField:"dowelsOut",targetLabel:"Connects to",qtyLabel:"Bars out per layer",
+     setsTitle:"Additional dowel sets out",
+     setsIntro:"Add a set for each distinct group of bars leaving the top of the wall."})}
+  </div>
   <div class="subsec"><div class="sechead">Strip Drain (behind wall, out of scope by default)</div>${chk("stripDrain",d.stripDrain,"Include strip drain — verify scope","stripDrain")}
   <div class="subsec ${d.stripDrain?'':'hidden'}" data-show-if="stripDrain">${F("Strip drain length (mm)",inpNum("stripDrainLength",d.stripDrainLength))}</div></div>`;
   return {geom,conc,reo,conns};
@@ -3911,17 +4122,21 @@ function computeShotWall(inst,def){
     let sheets=Math.ceil(wastedArea/MESH_SHEET_AREA_M2);
     lines.push(baseLine(inst,def,{materialGroup:"Reinforcement",material:type,spec:`Central mesh sheets ×${n} layer(s)`,qty:layeredArea,unit:"m²",waste:REO_WASTE_PCT,lap:meshLapPct,finalQty:wastedArea,sheets,formula:`area(${fmt(area,1)}) × ${n} layer(s) (+${REO_WASTE_PCT}% waste${meshLapPct?`, +${meshLapPct}% lap`:''}) → ceil(/${MESH_SHEET_AREA_M2}m²) = ${sheets} sheets`,notes:`${sheets} sheets (6.0×2.4m nominal)`}));
   });
-  if(d.starters && num(d.connQty)>0){
-    let dia=barDiaOf(d.connDia); let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen=num(d.connQty)*len; let wt2=totLen*massPerM(dia);
+  if(d.starters){
+    let dia=barDiaOf(d.connDia);
+    let bars=connBarCount(d,"conn");
+    let totLen=bars*connBarLenMm(d,"conn",dia)/1000; let wt2=totLen*massPerM(dia);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars in → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×len/1000`,linkedElement:tgt,notes:`${fmt(wt2,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars in → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt2,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",1,{specSuffix:" (starters in)"}));
   }
   let tgtOut=targetLabelOf(d.dowelsOut);
-  if(tgtOut && num(d.outQty)>0){
-    let dia=barDiaOf(d.outDia); let outLen=(num(d.outEmbed)+num(d.outProj))/1000;
-    let totLen=num(d.outQty)*outLen; let wt2=totLen*massPerM(dia);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.outDia,spec:"Dowels out → "+tgtOut,qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.outQty}×(embed ${d.outEmbed}+proj ${d.outProj})/1000`,linkedElement:tgtOut,notes:`${fmt(wt2,1)} kg`}));
+  {
+    let dia=barDiaOf(d.outDia);
+    let bars=connBarCount(d,"out");
+    let totLen=bars*connBarLenMm(d,"out",dia)/1000; let wt2=totLen*massPerM(dia);
+    if(tgtOut && totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.outDia,spec:"Dowels out → "+tgtOut,qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.outQty)}${connLayerNote(d,"out")}×(${connLenFormula(d,"out",dia)})/1000`,linkedElement:tgtOut,notes:`${bars} bars, ${fmt(wt2,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"outSets",1,{specSuffix:" (dowels out)"}));
   }
   if(d.stripDrain && num(d.stripDrainLength)>0){
     lines.push(baseLine(inst,def,{materialGroup:"Drainage",material:"Strip drain (out of scope — verify)",spec:"",qty:num(d.stripDrainLength)/1000,unit:"m",waste:0,finalQty:num(d.stripDrainLength)/1000,formula:"manual entry"}));
@@ -3975,7 +4190,10 @@ function renderStairs(inst){
   ${layerTypeSelects(d,"topDistMeshLayers","topDistMeshType","topDistMeshLayerTypes",(f,v)=>selOpts(f,v,Object.keys(MESHTYPES).map(m=>[m,m])),"mesh type")}</div>
   </div>`;
   let conns=`${chk("starters",d.starters,"Starter bars into supporting slab/landing","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Qty",inpNum("connQty",d.connQty))}${F("Dia",barSizeSel("connDia",d.connDia))}${F("Embedment",inpNum("connEmbed",d.connEmbed))}${F("Projection",inpNum("connProj",d.connProj))}</div></div>`;
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{setsTitle:"Additional starter sets",
+     setsIntro:"A flight typically starts off both the landing above and the slab below, with different bars at each. Add a set for each."})}
+  </div>`;
   return {geom,conc:concSection(d,"<p class='small'>Concrete = triangular step volumes + waist slab + landing (or manual override for irregular stairs)</p>"),reo,conns};
 }
 function computeStairs(inst,def){
@@ -4032,11 +4250,13 @@ function computeStairs(inst,def){
       lines.push(baseLine(inst,def,{materialGroup:"Reinforcement",material:d.topDistDia||"N10",spec:"Top distribution bars",qty:tdLen,unit:"m",waste:PROJECT.reoWaste,lap:tdLapPct,finalQty:withWasteLap(tdLen,PROJECT.reoWaste,tdLapPct),formula:"count × width",notes:`${fmt(tdWt,1)} kg`}));
     }
   }
-  if(d.starters && num(d.connQty)>0){
-    let dia=barDiaOf(d.connDia); let len=(num(d.connEmbed)+num(d.connProj))/1000;
-    let totLen=num(d.connQty)*len; let wt=totLen*massPerM(dia);
+  if(d.starters){
+    let dia=barDiaOf(d.connDia);
+    let bars=connBarCount(d,"conn");
+    let totLen=bars*connBarLenMm(d,"conn",dia)/1000; let wt=totLen*massPerM(dia);
     let tgt=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×len/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:tgt,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",1,{specSuffix:" (starters)"}));
   }
   return {lines,warnings:[]};
 }
@@ -4148,9 +4368,10 @@ function renderTankbox(inst){
   <div class="grid cols3">${chk("wallVertLap",d.wallVertLap,"Vertical — include lap allowance (%)","wallVertLap")}${chk("wallHorLap",d.wallHorLap,"Horizontal — include lap allowance (%)","wallHorLap")}</div>`;
   let form=`<p class="small">Formwork = inner + outer wall faces (perimeter × depth × 2). Base is typically cast against blinding/ground.</p>`;
   let conns=`${chk("starters",d.starters,"Starter bars / dowels into adjoining slab or wall","starters")}
-  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters"><div class="grid cols4">
-   ${F("Connects to",targetSelect("connTarget",d.connTarget,inst.id))}${F("Quantity",inpNum("connQty",d.connQty))}${F("Diameter",barSizeSel("connDia",d.connDia))}${F("Embedment (mm)",inpNum("connEmbed",d.connEmbed))}${F("Projection (mm)",inpNum("connProj",d.connProj))}${F("Hook",anchorSel("connHook",d.connHook))}
-  </div></div>`;
+  <div class="subsec ${d.starters?'':'hidden'}" data-show-if="starters">
+   ${starterBlockUI(inst,"conn",{setsTitle:"Additional starter / dowel sets",
+     setsIntro:"Add a set for each distinct group — a coping starter, a step dowel, a plant-room wall tie."})}
+  </div>`;
   return {geom,conc:concSection(d,"<p class='small'>Concrete = base slab + perimeter walls</p>"),reo,form,conns};
 }
 function diagTankbox(inst){ let d=inst.data;
@@ -4231,11 +4452,12 @@ function computeTankbox(inst,def){
   if(d.grate) lines.push(baseLine(inst,def,{materialGroup:"Cast-ins",material:"Grate / access cover frame",spec:"",qty:N,unit:"no.",waste:0,finalQty:N,formula:"per pit"}));
   if(d.starters){
     let dia=barDiaOf(d.connDia);
-    let len=(num(d.connEmbed)+num(d.connProj)+anchorLen(d.connHook,dia,0))/1000;
-    let totLen=num(d.connQty)*N*len;
+    let bars=connBarCount(d,"conn")*N;
+    let totLen=bars*connBarLenMm(d,"conn",dia)/1000;
     let wt=totLen*massPerM(dia);
     let targetLabel=targetLabelOf(d.connTarget);
-    lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars / dowels → "+(targetLabel||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${d.connQty}×${N}×(embed ${d.connEmbed}+proj ${d.connProj})/1000`,linkedElement:targetLabel,notes:`${fmt(wt,1)} kg`}));
+    if(totLen>0) lines.push(baseLine(inst,def,{materialGroup:"Connections",material:d.connDia,spec:"Starter bars / dowels → "+(targetLabel||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${num(d.connQty)}${connLayerNote(d,"conn")}×${N}×(${connLenFormula(d,"conn",dia)})/1000`,linkedElement:targetLabel,notes:`${bars} bars, ${fmt(wt,1)} kg`}));
+    lines.push(...connSetsLines(inst,def,"connSets",N,{specSuffix:" (starters)"}));
   }
   return {lines,warnings:[]};
 }
@@ -4534,35 +4756,19 @@ function buildCard(inst){
   refreshCardResults(card,inst);
   return card;
 }
+/* Every element carries this, whatever its calculator — so any element can
+   express a bar connection its own starter block doesn't cover, in as many
+   sets as the detail actually has, each with its length derived, typed off
+   the schedule, or sketched. It is the same editor the dedicated starter
+   blocks use, so there is one way to describe a bar in this app. */
 function renderExtraConnRows(inst){
-  let rows = inst.data.extraConn || (inst.data.extraConn=[]);
-  return `<div class="subsec"><div class="sechead">Additional Connections (any element, any quantity)</div>
-  <p class="small">Use this for any bar connection not covered above — e.g. a beam landing on two different columns, or a wall dowelling into two different slabs. You state the exact number of bars for each connection; nothing is assumed from a "typical" pier-to-cap or column-to-beam pattern.</p>
-  <table class="rows"><thead><tr><th>Target element</th><th>Role</th><th>Qty (bars)</th><th>Dia</th><th>Embedment (mm)</th><th>Projection (mm)</th><th>Hook/lap</th><th></th></tr></thead>
-  <tbody>${rows.map((r,i)=>extraConnRowHtml(inst,r,i)).join('')}</tbody></table>
-  <button class="btn small" data-action="addRow" data-target="extraConn">+ Add connection</button></div>`;
-}
-function extraConnRowHtml(inst,r,i){
-  return `<tr data-row="extraConn.${i}">
-   <td>${targetSelect(`extraConn.${i}.target`,r.target,inst.id)}</td>
-   <td>${inpText(`extraConn.${i}.role`,r.role)}</td>
-   <td style="width:70px">${inpNum(`extraConn.${i}.qty`,r.qty)}</td>
-   <td style="width:85px">${barSizeSel(`extraConn.${i}.dia`,r.dia)}</td>
-   <td style="width:90px">${inpNum(`extraConn.${i}.embed`,r.embed)}</td>
-   <td style="width:90px">${inpNum(`extraConn.${i}.proj`,r.proj)}</td>
-   <td>${anchorSel(`extraConn.${i}.hook`,r.hook)}</td>
-   <td><button class="btn small danger" data-action="delRow" data-target="extraConn" data-idx="${i}">✕</button></td>
-  </tr>`;
+  return connSetsUI(inst, "extraConn", {
+    title: "Additional Connections (any element, any quantity)",
+    intro: "Use this for any bar connection the sections above don't cover — a beam landing on two different columns, a wall dowelling into two different slabs, a hairpin at a re-entrant corner. You state the exact number of bars for each set; nothing is assumed from a \"typical\" pier-to-cap or column-to-beam pattern."
+  });
 }
 function computeExtraConnections(inst,def,out){
-  (inst.data.extraConn||[]).forEach(r=>{
-    if(!r.target || !num(r.qty)) return;
-    let dia=barDiaOf(r.dia||"N16");
-    let len=(num(r.embed)+num(r.proj)+anchorLen(r.hook,dia,0))/1000;
-    let totLen=num(r.qty)*len; let wt=totLen*massPerM(dia);
-    let tgt=targetLabelOf(r.target);
-    out.lines.push(baseLine(inst,def,{materialGroup:"Connections",material:r.dia||"N16",spec:(r.role||"Connection")+" → "+(tgt||"(unlinked)"),qty:totLen,unit:"m",waste:PROJECT.reoWaste,finalQty:withWaste(totLen,PROJECT.reoWaste),formula:`${r.qty}×(embed ${r.embed||0}+proj ${r.proj||0}+hook)/1000`,linkedElement:tgt,notes:`${fmt(wt,1)} kg`}));
-  });
+  out.lines.push(...connSetsLines(inst,def,"extraConn",1,{}));
   return out;
 }
 function attachCardEvents(card,inst){
@@ -4643,6 +4849,14 @@ function attachCardEvents(card,inst){
       let host=card.querySelector('.sdBarHost');
       if(host) host.innerHTML=stepBarSVG(inst.data);
     }
+    // A connection bar's leg length: redraw just that set's own sketch. The
+    // host is keyed by the set's lens path, so many sets on one card each
+    // refresh their own diagram.
+    let connLegM=f.match(/^(.*[Ll]ens)\.\d+$/);
+    if(connLegM){
+      let host=card.querySelector(`[data-connbar-host="${connLegM[1]}"]`);
+      if(host) host.innerHTML=polylineSVG(getPath(inst.data,connLegM[1].replace(/[Ll]ens$/,m=>m[0]==="L"?"Dirs":"dirs"))||[],getPath(inst.data,connLegM[1])||[],"one bar");
+    }
     if(/^outlineSideLens\./.test(f)){
       rebuildOutlineFromSides(inst.data);
       let host=card.querySelector('.outlineHost');
@@ -4669,18 +4883,27 @@ function attachCardEvents(card,inst){
     let act=e.target.dataset.action;
     if(act==="addRow"){
       let target=e.target.dataset.target;
-      let arr=inst.data[target]||(inst.data[target]=[]);
-      let template = target==="openings"? {label:"Opening",w:600,h:2100,qty:1} : /Rows$/.test(target)? {position:"Additional",qty:2,dia:"N16",layers:1,startA:"straight",endA:"straight"} : target==="extraConn"? {target:"",role:"Dowel",qty:4,dia:"N16",embed:400,proj:400,hook:"straight"} : target==="sdExtraBars"? {orient:"vertical",dia:"N12",spacing:300,len:600} : target.endsWith("Bars")? {mark:"Section "+((arr.length)+1),dia:"N12",span:1,spacing:200,len:1} : target==="outlinePts"? {x:0,y:0} : {zone:"Zone",length:1000,dia:"N10",spacing:200};
+      let arr=getPath(inst.data,target);
+      if(!Array.isArray(arr)){ arr=[]; setPath(inst.data,target,arr); }
+      let template = /Sets$/.test(target)? connSetDefault() : target==="openings"? {label:"Opening",w:600,h:2100,qty:1} : /Rows$/.test(target)? {position:"Additional",qty:2,dia:"N16",layers:1,startA:"straight",endA:"straight"} : target==="extraConn"? Object.assign(connSetDefault(),{label:"Dowel",proj:400}) : target==="sdExtraBars"? {orient:"vertical",dia:"N12",spacing:300,len:600} : target.endsWith("Bars")? {mark:"Section "+((arr.length)+1),dia:"N12",span:1,spacing:200,len:1} : target==="outlinePts"? {x:0,y:0} : {zone:"Zone",length:1000,dia:"N10",spacing:200};
       arr.push(template);
       rerenderCardKeepTab(card,inst);
     } else if(act==="delRow"){
       let target=e.target.dataset.target, idx=parseInt(e.target.dataset.idx);
-      inst.data[target].splice(idx,1);
+      let arr=getPath(inst.data,target); if(Array.isArray(arr)) arr.splice(idx,1);
       rerenderCardKeepTab(card,inst);
     } else if(act==="facesAll" || act==="facesNone"){
       let fields=e.target.dataset.fields.split(',');
       fields.forEach(fk=>inst.data[fk]=(act==="facesAll"));
       rerenderCardKeepTab(card,inst);
+    } else if(act==="sketchConnBar"){
+      openSketchPad(inst,card,"connbar",{dirs:e.target.dataset.dirs,lens:e.target.dataset.lens});
+    } else if(act==="clearConnBar"){
+      // Clear the legs, not the mode: the estimator stays in Shape mode with
+      // an empty pad ready to re-draw. Switching back to a derived or manual
+      // length is what the mode select is for.
+      setPath(inst.data,e.target.dataset.dirs,undefined); setPath(inst.data,e.target.dataset.lens,undefined);
+      computeAllAndRefresh(); rerenderCardKeepTab(card,inst);
     } else if(act==="sketchStepBar"){
       openSketchPad(inst,card,"stepbar");
     } else if(act==="clearStepBar"){
@@ -5836,11 +6059,11 @@ function ensureSketchPad(){
   div.querySelector("#sketchClear").onclick=()=>{ SKETCH.stroke=[]; redraw(); };
   div.querySelector("#sketchCancel").onclick=()=>{ div.style.display="none"; };
   div.querySelector("#sketchUse").onclick=()=>{
-    if(SKETCH.mode==="stepbar" || SKETCH.mode==="etrun"){
+    if(SKETCH.mode==="stepbar" || SKETCH.mode==="etrun" || SKETCH.mode==="connbar"){
       // OPEN polyline: a bar's profile or the thickened-edge run in plan —
       // not a closed outline. Straighten, snap (90° default), merge wobble,
       // label segments A, B, C… — true lengths in mm typed on the card.
-      let isEt=SKETCH.mode==="etrun";
+      let isEt=SKETCH.mode==="etrun", isConn=SKETCH.mode==="connbar";
       let simp=rdpSimplify(SKETCH.stroke,14);
       if(simp.length>9) simp=rdpSimplify(SKETCH.stroke,26).slice(0,9);
       if(simp.length<2){ div.querySelector("#sketchHint").textContent=isEt?"Draw the thickened edge's run as one stroke off the plan.":"Draw the bar's profile as one stroke (e.g. down, across, down)."; return; }
@@ -5864,7 +6087,8 @@ function ensureSketchPad(){
       let bmax=Math.max(...mlens)||1;
       let bseed=mlens.map(L=>Math.max(50,Math.round(L/bmax*600/10)*10));
       let bd=SKETCH.inst.data;
-      if(isEt){ bd.etDirs=mdirs; bd.etLens=bseed; }
+      if(isConn){ setPath(bd,SKETCH.dirsPath,mdirs); setPath(bd,SKETCH.lensPath,bseed); }
+      else if(isEt){ bd.etDirs=mdirs; bd.etLens=bseed; }
       else { bd.sdBarDirs=mdirs; bd.sdBarLens=bseed; }
       div.style.display="none";
       computeAllAndRefresh();
@@ -5915,11 +6139,18 @@ function ensureSketchPad(){
     rerenderCardKeepTab(SKETCH.card,SKETCH.inst);
   };
 }
-function openSketchPad(inst,card,mode){
+function openSketchPad(inst,card,mode,dest){
   ensureSketchPad();
   SKETCH.inst=inst; SKETCH.card=card; SKETCH.stroke=[]; SKETCH.mode=mode||"outline";
+  // A connection bar's sketch is written to whichever set opened the pad —
+  // there can be many on one card, so the destination travels with the call
+  // rather than being a fixed pair of field names like the step bar's.
+  SKETCH.dirsPath=(dest&&dest.dirs)||null; SKETCH.lensPath=(dest&&dest.lens)||null;
   let div=document.getElementById("sketchPad");
-  if(SKETCH.mode==="stepbar"){
+  if(SKETCH.mode==="connbar"){
+    div.querySelector("#sketchTitle").textContent="Sketch the connection / starter bar";
+    div.querySelector("#sketchCopy").textContent="Draw the bar's profile in one stroke, straight off the drawing — up for a plain starter, down-across-up for a cranked dowel or a hairpin, an L for a hooked bar. It's straightened into legs A, B, C… and you type each leg's true length in mm.";
+  } else if(SKETCH.mode==="stepbar"){
     div.querySelector("#sketchTitle").textContent="Sketch the dowel / step bar shape";
     div.querySelector("#sketchCopy").textContent="Draw the bar's profile in one stroke, straight off the drawing — down, across, down for a Z-bar; two strokes of an L become one stroke with a corner. It's straightened into segments A, B, C… and you type each segment's true length in mm.";
   } else if(SKETCH.mode==="etrun"){

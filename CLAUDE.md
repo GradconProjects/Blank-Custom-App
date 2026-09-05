@@ -230,10 +230,12 @@ caps picked up by several pile groups or scheduled separately.
 Dowels are entered **once, at the pile**, on the Connections / Dowels tab,
 and name the cap or capping beam they run into (`targetSelect` takes an array
 of calcs). Counting them on the pile is what stops the cap double-counting
-them. `renderPileCap` once built its starter section and then forgot to
-return `conns`, so the bars billed off the defaults with no field to edit
-them — if you add a calculator with connections, check the key is in the
-return.
+them. `renderPileCap`, `renderPier` and `renderStripFooting` each once built
+a starter section and then forgot to return `conns`, so the bars billed off
+the defaults with no field anywhere on the card to edit them — if you add a
+calculator with connections, check the key is in the return. There is a
+one-liner in `scripts/` history for sweeping this: find every `render*` that
+declares `conns` and doesn't name it in its `return {…}`.
 
 `LEGACY_LIB_ITEMS` keeps the retired per-type ids (`boredpier`,
 `precastpile`, …) resolvable in `LIB_INDEX` without rendering them, so a
@@ -243,6 +245,56 @@ New workspace cards open **expanded**. They used to roll up the instant they
 appeared, which hid the very fields you added the element to fill in; the
 `estNewCollapsed` preference now has to be explicitly turned ON to get the
 old behaviour, and "Roll up all elements" is unchanged.
+
+## Connection / starter bars
+
+Every starter, dowel, continuity bar and step dowel in Estimates resolves its
+length through **`connBarLenMm(o, prefix, dia)`** in `estimates-app.html`.
+There is one implementation and no inline `embed + proj` arithmetic left
+anywhere — a pier's starters, a pile cap's column starters, a wall's dowels
+out and a row in the Additional Connections table all measure the same detail
+the same way. Three modes, chosen per set on the card:
+
+- **derive** — embedment + projection + hook allowance + lap. The original
+  behaviour, and still what a set with no `lenMode` stored gets, so no saved
+  takeoff moves.
+- **manual** — one bar's TOTAL length in mm, straight off the bar schedule.
+  Nothing is added to it. This is the honest mode when the schedule is
+  already drawn: re-deriving a figure that exists only invites a discrepancy.
+- **shape** — the bar is sketched (L, Z, cranked, hairpin) and each
+  straightened leg's true length typed in mm; the bar is the legs summed.
+  Reuses the step-bar sketch pad (`openSketchPad(inst, card, "connbar", {dirs,
+  lens})` — the destination travels with the call, because one card can carry
+  many sets, unlike the step bar's fixed field pair).
+
+**Sets are repeatable, because a real head detail is not one bar.** An outer
+ring of hooked N24, an inner ring of straight N16 and a central coupler bar
+is three sets; averaging them into one "quantity × diameter" row is how a
+takeoff quietly loses steel. `<prefix>Layers` multiplies the bar count within
+a set (two mats of the same bar), and every starter block carries an
+additional-sets table underneath (`connSetsUI` / `connSetsLines`, keyed
+`<prefix>Sets`) for the rest.
+
+The field convention is a prefix plus a capitalised suffix, resolved by
+`ck(prefix, name)`: `ck("conn","embed")` → `connEmbed`, `ck("col","embed")` →
+`colEmbed`, `ck("","embed")` → `embed` for a table row. That is what lets one
+resolver and one editor (`connLenUI`) serve sixteen differently-named starter
+blocks plus the nested `cap.col*` set on the Piles card. **Add a new
+connection anywhere and go through `starterBlockUI` / `connLenUI` /
+`connBarLenMm` — never re-derive a bar length inline.**
+
+Two things to watch:
+
+- **The universal Additional Connections table is the same editor.** It
+  appears on every element whatever its calculator, so any element can
+  express a connection its own starter block doesn't cover. Its rows
+  predate sets and named their description `role`; `normConnSet` folds that
+  into `label` on read, idempotently, so an old takeoff opens intact.
+- **`stemStarterProj` exists only because the retaining wall's stem starters
+  used to hard-add 400mm of lap inside the formula.** Now that the length
+  goes through the shared resolver that 400 has to be a real field, so
+  `computeRetWall` seeds it when it's absent. Delete that line and every
+  pre-existing retaining wall silently shortens its starters.
 
 ## Structural steel
 
