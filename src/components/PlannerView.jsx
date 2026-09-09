@@ -9,41 +9,41 @@ import { isUrgent, daysLabel, priorityRank } from "../lib/planner.js";
 const CHANNELS = ["Call", "Email", "Site meeting", "Text/WhatsApp", "Other"];
 const VARIATION_STATUSES = ["Draft", "Submitted", "Approved", "Rejected"];
 
-// Seed rows for the contractor/supplier registers — placeholders only.
-//
-// These used to carry the real trade contacts (names, mobiles, email
-// addresses) lifted from the original business's email history. That is
-// other people's personal data and it has no business shipping inside an app
-// that gets deployed publicly and handed to strangers, so the rows are now
-// role descriptions with every contact field blank. The register still
-// demonstrates its shape; the estimator fills in their own contacts, which
-// then persist like any other edit.
+// Seed rows for the contractor/supplier registers. These are deliberately
+// BLANK placeholder rows, not a real address book. An earlier version shipped
+// twenty real subcontractors and suppliers — named individuals, direct
+// mobiles and email addresses, compiled from a company inbox — which is other
+// people's contact data and has no business being committed to a repository
+// or handed to anyone who opens the app. The registers exist to demonstrate
+// the feature; whoever uses the tool fills in their own trade list.
 //
 // These are the registers' *initial* value only — the first time anyone edits
 // (or deletes) a row, the whole edited list is what gets persisted
 // (localStorage/Supabase) and these defaults never reassert themselves. IDs
 // are fixed strings, not uid(), so the same seed rows carry identical
 // identity on every device that first saves them.
-const blankRow = (id, name, role) => ({ id, name, role, contact: "", phone: "", email: "", notes: "" });
-
+const blankRow = (id, role) => ({ id, name: "", role, contact: "", phone: "", email: "", notes: "" });
 const DEFAULT_CONTRACTORS = [
-  blankRow("seed-piling", "", "Piling — bored piers, CFA, screw piles"),
-  blankRow("seed-formwork", "", "Formwork — suspended slabs, hobs, edges"),
-  blankRow("seed-posttension", "", "Post-tensioning"),
-  blankRow("seed-basement", "", "Basement construction"),
-  blankRow("seed-reofix", "", "Reinforcement fixing"),
-  blankRow("seed-screed", "", "Engineered screed — supply & install"),
-  blankRow("seed-steelerect", "", "Structural steel — supply & erect"),
+  blankRow("seed-c1", "Piling — CFA, bored pier, screw piles"),
+  blankRow("seed-c2", "Formwork — suspended slabs, hobs, edges"),
+  blankRow("seed-c3", "Post-tensioning"),
+  blankRow("seed-c4", "Basement construction / retention"),
+  blankRow("seed-c5", "Steel fixing"),
+  blankRow("seed-c6", "Concrete placement & finishing"),
+  blankRow("seed-c7", "Engineered screed — supply & install"),
 ];
 const DEFAULT_SUPPLIERS = [
-  blankRow("seed-reo", "", "Reinforcement steel"),
-  blankRow("seed-concrete", "", "Concrete supply"),
-  blankRow("seed-formply", "", "Formwork materials"),
-  blankRow("seed-accessories", "", "Concreting accessories"),
-  blankRow("seed-insulation", "", "Insulation & foam products"),
-  blankRow("seed-plant", "", "Plant hire"),
-  blankRow("seed-steel", "", "Structural steel & purlins"),
+  blankRow("seed-s1", "Reinforcement steel"),
+  blankRow("seed-s2", "Ready-mix concrete"),
+  blankRow("seed-s3", "Concreting supplies & consumables"),
+  blankRow("seed-s4", "Formwork materials & ply"),
+  blankRow("seed-s5", "EPS / foam products"),
+  blankRow("seed-s6", "Plant hire"),
+  blankRow("seed-s7", "Masonry"),
+  blankRow("seed-s8", "Thermal insulation"),
+  blankRow("seed-s9", "Timber"),
 ];
+
 // Portal Settings preference for the priority a project shows before anyone
 // has set one — validated against the real list so a stale/typo'd stored
 // value can never render an unstyled priority.

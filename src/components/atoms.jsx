@@ -4,7 +4,7 @@ const STATUS_MAP = {
   loading: { icon: Loader2, text: "Loading…", cls: "text-neutral-400", spin: true },
   saving: { icon: Loader2, text: "Saving…", cls: "text-amber-600", spin: true },
   saved: { icon: Check, text: "Saved", cls: "text-emerald-600", spin: false },
-  error: { icon: AlertTriangle, text: "Save failed — changes are local only", cls: "text-red-600", spin: false },
+  error: { icon: AlertTriangle, text: "Not saved to the cloud — retrying…", cls: "text-red-600", spin: false },
   unavailable: { icon: AlertTriangle, text: "No local storage — changes won't survive a refresh", cls: "text-amber-600", spin: false },
 };
 

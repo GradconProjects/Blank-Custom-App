@@ -1,6 +1,6 @@
-# BOMA ESTIMATES Construction Portal — Complete Build Specification
+# BOMA ESTIMATES Portal — Complete Build Specification
 
-Build a single-deployable web portal for **BOMA ESTIMATES** (an Australian concrete subcontractor) containing four tools behind one login: **Rates Library**, **BOMA Cost Planner**, **Quotes**, and **Estimates** (an element takeoff engine), plus two views that live inside Quotes: **Planner** and **BOMA Vault** (documents). Everything ships as ONE static `index.html` deployable to Vercel or any static host.
+Build a single-deployable web portal for **BOMA ESTIMATES** (an Australian concrete subcontractor) containing four tools behind one login: **Rates Library**, **BOMA Cost Planner**, **Quotes**, and **Estimates** (an element takeoff engine), plus two views that live inside Quotes: **Planner** and **Project Vault** (documents). Everything ships as ONE static `index.html` deployable to Vercel or any static host.
 
 ---
 
@@ -21,11 +21,19 @@ Build a single-deployable web portal for **BOMA ESTIMATES** (an Australian concr
 ├─ portal/
 │  ├─ portal-shell.html      # login + dashboard + Settings + app host (vanilla)
 │  ├─ estimates-app.html     # Element Takeoff Engine (single-file vanilla JS)
+│  ├─ estimates-schema.js    # pure: schema version, migration, raw backup (inlined + Node-tested)
+│  ├─ estimates-orders.js    # pure: procurement rounding, order/pour schedules, reconciliation (inlined + Node-tested)
+│  ├─ estimates-3d/main.js   # Three.js viewer (built by vite.3d.config.js → dist/assets/estimates-3d.js)
 │  ├─ rates-library.html     # Rates Library (single-file vanilla JS)
 │  └─ cost-planner.html      # Cost Planner (single-file vanilla JS)
 ├─ scripts/
-│  ├─ assemble-portal.mjs    # builds the combined dist/index.html
-│  └─ verify.mjs             # Node-only costing regression suite
+│  ├─ assemble-portal.mjs    # builds the combined dist/index.html (inlines the pure modules, asserts every step)
+│  ├─ build-download.mjs     # download/ zip: cloud-connected + offline single-file copies (+ source)
+│  ├─ verify.mjs             # Node-only costing regression suite (Quotes)
+│  ├─ verify-estimates.mjs   # Node-only Estimates suite: migration, backup, orders, Quotes bridge
+│  └─ …
+├─ docs/ESTIMATES_COVERAGE.md # coverage audit: real-world item → calculator + modifier
+├─ tests/fixtures/estimates/  # real legacy takeoffs the Estimates suite runs against
 └─ supabase/migrations/0001_estimator_kv.sql
 ```
 
@@ -38,14 +46,12 @@ Build a single-deployable web portal for **BOMA ESTIMATES** (an Australian concr
 ## 2. Portal Shell (`portal-shell.html`)
 
 ### 2.1 Auth
-- **Trial gate, not accounts.** One hardcoded password `TRIAL_PASSWORD='5120'`; login screen is a single password field plus a 5-dot sessions-left meter. `SESSION_MS`=1h per session, `TRIAL_MAX_SESSIONS`=5, `TRIAL_MAX_MS`=5h — whichever runs out first shows `#screen-locked` ("GET FULL VERSION") permanently. State under localStorage `boma-trial` = `{sessionsUsed, msUsed, current:{startedAt,expiresAt}|null}`; `msUsed` banks finished sessions only, the live one is derived from `startedAt` so closing the tab doesn't pause the clock and a reload doesn't spend a session. A 1s ticker updates the countdown pills (`#trial-pill-dash`, `#trial-pill-app`) and forces the sign-out at zero. Per-browser only — a demo limiter, not a security boundary. Which app was open persists in localStorage `{currentUser, activeApp}`; `restoreSession()` re-enters the last open app on reload. NOT a security boundary — internal tool.
-
-- **Owner key**: `2580` (default; `TRIAL_OWNER_KEY` overrides). Entered via `/?key=…` or by triple-clicking the wordmark, which opens `#owner-modal-backdrop`. Sets a signed `boma_owner` HttpOnly cookie; state `owner` skips the meter entirely and the pill reads "Full access". Works from the lock screen and in fallback mode.
+- `ALLOWED_EMAILS = ['owner@example.com','projects@example.com']`, `DEFAULT_PIN='2580'`; per-email PIN overrides stored under localStorage `boma-portal-pins`. Login screen: email `<select>` + 4-digit PIN. A "Change PIN" modal (current/new/confirm). Session persists in localStorage `{currentUser, activeApp}`; `restoreSession()` re-enters the last open app on reload. NOT a security boundary — internal tool.
 
 ### 2.2 Dashboard
-- Header: boma logo (base64 PNG), right side: "Trial session N of 5", **Settings** button (gear icon), session countdown pill, End session.
+- Header: boma logo (base64 PNG), right side: "Signed in as …", **Settings** button (gear icon), Change PIN, Log out.
 - Hero: eyebrow "DASHBOARD", h1 "What are you working on?", intro paragraph, wide construction-site photo (base64 JPEG, `dash-hero-art`, hideable via Settings).
-- **Panel grid: 6 tiles on one row ≥1100px (3-col tablet, 1-col mobile), fully centre-aligned content.** Each tile: a 144px (192px tablet) rounded badge on its own pastel background containing a **colourful flat-cartoon inline SVG** (48×48 viewBox, ~76% fill): ①Rates Library=blue ledger+price tag+green $ coin, ②Cost Planner=bar chart+trend arrow+gold $ coin, ③Quotes=document+orange calculator+$ badge, ④Estimates=blueprint+yellow scale ruler+pencil, ⑤Planner=red calendar+clock, ⑥BOMA Vault=grey safe with lime dial+manila folder. Below: centred title, description, "OPEN X →" CTA. Tag `01`–`06` pinned top-right. Tiles ⑤/⑥ target Quotes with `data-initial-view="planner"/"folder"`.
+- **Panel grid: 6 tiles on one row ≥1100px (3-col tablet, 1-col mobile), fully centre-aligned content.** Each tile: a 144px (192px tablet) rounded badge on its own pastel background containing a **colourful flat-cartoon inline SVG** (48×48 viewBox, ~76% fill): ①Rates Library=blue ledger+price tag+green $ coin, ②Cost Planner=bar chart+trend arrow+gold $ coin, ③Quotes=document+orange calculator+$ badge, ④Estimates=blueprint+yellow scale ruler+pencil, ⑤Planner=red calendar+clock, ⑥Project Vault=grey safe with lime dial+manila folder. Below: centred title, description, "OPEN X →" CTA. Tag `01`–`06` pinned top-right. Tiles ⑤/⑥ target Quotes with `data-initial-view="planner"/"folder"`.
 - Tile click → `openApp(target)`: decode base64 → blob iframe; "← Portal" back button returns to dashboard (`about:blank`s the iframe).
 
 ### 2.3 Design tokens
@@ -108,10 +114,10 @@ Key exports: `money(n)` whole-AUD; `money2(n)` reads `moneyDecimals` pref via `r
 `useStoredState(key, initial)` → `[value,setValue,status]`. Backs onto **Supabase** when `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` env vars exist (single table `estimator_kv(key text pk, value jsonb, updated_at timestamptz)`, RLS open to anon — deliberate no-auth internal tool), else localStorage. Both paths try/catch; network failure resolves status `"error"`, never hangs `"loading"`. Merge-safe writes for the projects index; echo-resave guard; slow-poll + focus/visibility re-fetch for near-live cross-device sync. `projects.js`: index `[{id,storageKey,createdAt}]` under `boma-projects-index`; each project's quote object under its own `storageKey`; `readQuote/readQuotes/writeQuote/deleteQuote`; legacy single `boma-quote` auto-migrates to project #1.
 
 ### 4.3 UI (components/)
-- **App.jsx**: navy sticky header (Tailwind `blue-950`), buttons Element Types + Rates; tab bar Dashboard / Planner / **BOMA Vault**; view switch by `activeId`. `blankQuote()` seeds `{projectName:"",projectDate:today,gfa,overheadPct(pref÷100||.08),contingencyPct(pref||.05),status:prefStatus(),items:[]}`. Remembers active project in `boma-active-project` (skipped when `quotesRememberProject===false`). Reads portal-set `initial-view` flag (planner/folder tiles) and the Estimates publish payload on mount.
+- **App.jsx**: navy sticky header (Tailwind `blue-950`), buttons Element Types + Rates; tab bar Dashboard / Planner / **Project Vault**; view switch by `activeId`. `blankQuote()` seeds `{projectName:"",projectDate:today,gfa,overheadPct(pref÷100||.08),contingencyPct(pref||.05),status:prefStatus(),items:[]}`. Remembers active project in `boma-active-project` (skipped when `quotesRememberProject===false`). Reads portal-set `initial-view` flag (planner/folder tiles) and the Estimates publish payload on mount.
 - **Dashboard.jsx**: project rows (name/date/deadline/status pill/elements/GFA/direct cost/Sell @default-margin/$per m²) + portfolio footer + 4 stat tiles; sort select (pref-seeded); two-click arm delete (skipped when confirmDeletes off — never native `confirm()`, it's blocked in sandboxed iframes).
 - **ProjectEditor**: AddElementBar (optgrouped dropdown) → ElementCard per item: collapsible card (pref-initial), every FULL_CATALOG category as collapsible CategoryBlock (qty inputs via shared `NumInput` handling empty-vs-0), amber LabourMatrix keyed by resource `key`, AdditionalItems (custom qty×rate lines), per-element total. Sticky grand total. QuoteSummary rail: category→section rollups + margin ladder table (default row highlighted via `getDefaultMargin()`), overheads/contingency inputs (fractions!), GFA.
-- **PlannerView**: per-project deadline/priority/requirements + communications log; "Attend to now" (Urgent/High or due ≤7d, via shared `lib/planner.js isUrgent`) vs "Can defer"; cards collapsed by default. **ProjectFolderView ("BOMA Vault")**: per-project + shared Office document folders (files in storage as base64/IndexedDB), comms, "Last upload" line.
+- **PlannerView**: per-project deadline/priority/requirements + communications log; "Attend to now" (Urgent/High or due ≤7d, via shared `lib/planner.js isUrgent`) vs "Can defer"; cards collapsed by default. **ProjectFolderView ("Project Vault")**: per-project + shared Office document folders (files in storage as base64/IndexedDB), comms, "Last upload" line.
 - **Print/PDF**: `PrintQuoteReport` hidden on screen, shown under `@media print` only (rest of app `print:hidden`); lists only lines with qty; margin ladder; built from `computeElementCost` — never reveal on-screen cards (collapsed ones are unmounted). `ExternalQuoteReport`: client-facing quotation (letterhead, per-element sell lines via `computeExternalScopeLines`, terms). `exportQuote.js`: Excel-flavoured HTML workbook + CSV, same numbers.
 - **ManageElementTypesModal**: user-added element types stored under `boma-custom-element-types`, merged with built-ins at render; components take `elementTypes/categoryOrder` as props defaulting to built-ins.
 - **RatesModal**: edit every product's `unitCost/unitWeight/sheetArea` → overrides saved under `boma-rates`.
@@ -179,6 +185,18 @@ Filters (category/material-group/search). Grouped per element: collapsible `<tbo
 - Save/Load project `.json` (full state incl. UPLOADED_FILES).
 - **CSV import** (Project Setup): Bluebeam Markup-Summary or generic CSV → drafts one element per row by keyword→type regex map; applies only Count automatically; keeps raw measurement on the label tagged "⚠ From CSV import — verify"; Excel/PDF files attach for reference only, listed with remove buttons.
 
+### 5.5a Export preview, report metadata and reconciliation (Phase 5)
+- **Every export opens a preview first** (`openExportPreview({title, files:[{name, headers, rows}], note})`): the exact rows/columns of each file (first 60 rows shown, all in the download), row × column count, and the report header from `reportMeta()` — project, job, client, revision, drawing/spec revisions, **Prepared by** (`PROJECT.preparedBy`, Project Setup), reviewer acknowledgement, date, standards profile, register fingerprint, build. Download (all files for Export All) or Copy as text from the dialog; `download()` keeps the copy-fallback panel for JSON/backup paths.
+- Worksheet CSVs stay pure tables (live Final Quantity formula); the order schedule, pour schedule and warnings CSVs append `reportTrailerRows()` (project, revision, preparer, reviewed, generated date, standards, fingerprint, disclaimer) under the data.
+- **Reconciliation block** (Export page + PDF): `reconcile()` totals element cards, the Quantity Register and the export payload independently (concrete m³, reo kg, formwork m², blinding, vapour, excavation, spoil, line count, fingerprint) and ✓/✗ each row; a fourth "Last published" column appears after the first Publish and flags ⟳ stale rows when Quotes / Cost Planner are behind the takeoff.
+- PDF header carries preparer and fingerprint; the Material Summary shows m³ to order and whole stock lengths; a Pour schedule table and the Reconciliation block follow.
+
+### 5.5b Order Schedule (tab 6) — `portal/estimates-orders.js`
+- One line per `group::material::unit` (the key `PROJECT.orderExclude` ticks are stored under, saved with the takeoff on every tick) with **Net | Waste + lap adjusted | Unit | Order qty | Order unit | Procurement rule | kg | t | Stock lengths / sheets | Elements**. Rules (`procurementRuleFor`): concrete 0.2 m³ steps; bars whole stock lengths at `PROJECT.barStock` (ligatures/stirrups counted in no. join through `lengthM`); trench mesh whole 6 m lengths; sheet mesh whole 14.4 m² sheets (line-level ceilings summed); mesh strips whole 6 m sheet lengths; formwork to 0.1 m²; excavation/base to 0.5 m³; vapour barrier to the whole m²; counts to whole items. Order is never less than adjusted; adjusted always equals the register.
+- **Reinforcement by product**: bars by diameter (m, kg, t, stock lengths), trench mesh and strips by product (lengths), sheet mesh by type (sheets).
+- **Pour schedule**: concrete by grade → element `pour` tag → element (level/zone shown), net / adjusted / order per row, each pour rounded up separately; own CSV export.
+- `npm run verify` proves the module in Node against synthetic lines and every real fixture (rounding, keys, grouping, pour sort, reconciliation catches a changed quantity or a missing line).
+
 ### 5.6 Saved Takeoffs (multi-project) + cloud sync
 - Keys: legacy blob `boma-estimate-state` (project #1 keeps it for continuity), later takeoffs `boma-estimate-state::proj_<rand>`; registry `boma-estimate-projects-index` = `[{id,name,key,savedAt}]`; active id `boma-estimate-active`; `CURRENT_PROJECT_KEY` variable is what save/load/sync use.
 - **Saved Takeoffs bar** at top of Project Setup: chip per takeoff (name+saved time, active highlighted "▶", ✕ delete honouring confirmDeletes) + "+ New takeoff". Save writes ONLY the open takeoff and refreshes its index name/date. New: save current → fresh state from `DEFAULT_PROJECT_TEMPLATE` (+ seed 5 common types) → new key → save. Switch: save current (skip if just deleted) → point key → reset → `loadEstimateState()` → rerender all → cloud pull. Delete: remove key(+`__syncedAt`)+index entry, push `null` to cloud key; if active, switch to first remaining or auto-new.
@@ -193,7 +211,7 @@ Filters (category/material-group/search). Grouped per element: collapsible `<tbo
 ---
 
 ## 7. Shared localStorage keys (one origin)
-`boma-trial` (§2.1) · portal session · `boma-preferences` (§2.4) · `boma-projects-index` + per-project quote keys · `boma-rates` · `boma-custom-element-types` · `boma-active-project` (per-browser, never synced) · `boma-estimate-state[::id]` (+`__syncedAt`) · `boma-estimate-projects-index` · `boma-estimate-active` · `boma-estimate-export` (bridge payload).
+`boma-portal-pins` · portal session · `boma-preferences` (§2.4) · `boma-projects-index` + per-project quote keys · `boma-rates` · `boma-custom-element-types` · `boma-active-project` (per-browser, never synced) · `boma-estimate-state[::id]` (+`__syncedAt`) · `boma-estimate-projects-index` · `boma-estimate-active` · `boma-estimate-export` (bridge payload).
 
 ## 8. Supabase (optional, no-auth by design)
 ```sql
@@ -204,7 +222,7 @@ create policy anon_all on estimator_kv for all using (true) with check (true);
 Anon/publishable key only — never service_role in client code. Every load/save try/catch-wrapped.
 
 ## 9. Build, verify, deploy
-`npm run dev` (Vite, :5173) · `npm run verify` (must pass; treat red = broken build) · `npm run build` · `npm run build:portal` (build + assemble) → deploy `dist/` to Vercel (git-push CI). Local Playwright testing: move `.env.local` aside, plain build + assemble, serve dist via Node http, sign in with the trial password, find app frame via `page.frames().find(f=>f.url().startsWith("blob:"))`; click sidebar tabs by text with `{force:true}`, never fixed coordinates.
+`npm run dev` (Vite, :5173) · `npm run verify` (must pass; treat red = broken build — Quotes costing suite + Estimates suite: migration, backup, orders module, Quotes bridge) · `npm run build` (Vite app + the 3D viewer bundle) · `npm run build:portal` (build + assemble; the assembler needs a FRESH build and cannot run twice on the same dist/index.html) → deploy `dist/` to Vercel (git-push CI) · `npm run build:download` regenerates `download/` (cloud-connected and offline single-file copies + source zip) — the ONLY way those files are produced; never edit them by hand. Local Playwright testing: move `.env.local` aside, plain build + assemble, serve dist via Node http, login grady/2580, find app frame via `page.frames().find(f=>f.url().startsWith("blob:"))`; click sidebar tabs by text with `{force:true}`, never fixed coordinates.
 
 ## 10. Acceptance checklist
-1) verify 27/27. 2) Login→dashboard: 6 centred colourful tiles one row; Settings ticks visibly draw; every setting round-trips and actually changes behaviour (spot-check GST 12%/margin 25% flow to the ladder to the cent; Estimates fresh takeoff picks up cover/lap/waste/mesh defaults; auto-open lands in the chosen app once). 3) Quotes: add one element of each family shape; totals roll into sticky bar + summary under correct category/section; Square Mesh rounds sheets UP; both Pump columns total; print shows only entered lines. 4) Estimates: raft slab with edge thickening + internal beam strips + trench-mesh beam reo computes; every reinforcement item shows a lap checkbox and every mesh an extra-lap checkbox; pad-footing ties & pile-cap side-bars/stirrups produce lines; register override checkbox edits qty live; CSV opens clean in Excel with live final-qty formulas; PDF has no app chrome and includes the Material Summary; two Saved Takeoffs switch cleanly with independent state; second device sees both via cloud. 5) Publish to Quote creates a flagged, conservatively-prefilled project; Cost Planner reflects the same register.
+1) `npm run verify` green (Quotes costing + Estimates suites). 2) Login→dashboard: 6 centred colourful tiles one row; Settings ticks visibly draw; every setting round-trips and actually changes behaviour (spot-check GST 12%/margin 25% flow to the ladder to the cent; Estimates fresh takeoff picks up cover/lap/waste/mesh defaults; auto-open lands in the chosen app once). 3) Quotes: add one element of each family shape; totals roll into sticky bar + summary under correct category/section; Square Mesh rounds sheets UP; both Pump columns total; print shows only entered lines. 4) Estimates: raft slab with edge thickening + internal beam strips + trench-mesh beam reo computes; every reinforcement item shows a lap checkbox and every mesh an extra-lap checkbox; pad-footing ties & pile-cap side-bars/stirrups produce lines; register override checkbox edits qty live; CSV opens clean in Excel with live final-qty formulas; PDF has no app chrome and includes the Material Summary; two Saved Takeoffs switch cleanly with independent state; second device sees both via cloud. 5) Publish to Quote creates a flagged, conservatively-prefilled project; Cost Planner reflects the same register. 6) Every export previews first with revision / preparer / date; the Export page reconciliation shows ✓ on every row and ⟳ stale against the last published copy after an edit; the Order Schedule shows net, adjusted and order quantities with the rule on each row, reinforcement by product with stock lengths, and a pour schedule grouped by grade → pour → element; the offline download copy runs all of this with no cloud.

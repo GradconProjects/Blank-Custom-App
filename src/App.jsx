@@ -1,10 +1,14 @@
-import { useState, useMemo, useEffect } from "react";
-import { Settings2, ArrowLeft, Printer, ListPlus, FileSpreadsheet, LayoutDashboard, Radar, FolderOpen } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { Settings2, ArrowLeft, Printer, ListPlus, FileSpreadsheet, LayoutDashboard, Radar, FolderOpen, History, HardDriveDownload, AlertTriangle } from "lucide-react";
+import { saveVersion, downloadQuoteFile, parseQuoteFile } from "./lib/quoteVersions.js";
+import { quoteStorageKey } from "./lib/projects.js";
+import VersionsModal from "./components/VersionsModal.jsx";
 import { ELEMENT_TYPES, QUOTE_STATUSES, QUOTE_STATUS_STYLES } from "./data/catalog.js";
 import { defaultRates, newElementItem, computeGrandTotal, uid, money, rateKey } from "./lib/costing.js";
+import { pendingRateUpdates, readLibraryState, readLastSynced, writeLastSynced, RATES_LIBRARY_KEY } from "./lib/ratesLibrarySync.js";
 import { buildQuoteExcelHtml, quoteExcelFilename, buildQuoteCsv } from "./lib/exportQuote.js";
 import { useStoredState } from "./lib/storage.js";
-import { PROJECTS_INDEX_KEY, newProjectEntry, migrateLegacyQuote, deleteQuote, writeQuote, readQuotes, publishQuoteToCostPlanner } from "./lib/projects.js";
+import { PROJECTS_INDEX_KEY, newProjectEntry, migrateLegacyQuote, deleteQuote, writeQuote, readQuotes, publishQuoteToCostPlanner, mirrorQuoteSummary } from "./lib/projects.js";
 import { ESTIMATE_EXPORT_KEY, buildImportFromEstimate } from "./lib/estimateImport.js";
 import { SaveBadge } from "./components/atoms.jsx";
 import AddElementBar from "./components/AddElementBar.jsx";
@@ -42,6 +46,25 @@ const prefPct = (key, fallback) => {
     return Number.isFinite(p[key]) ? p[key] / 100 : fallback;
   } catch {
     return fallback;
+  }
+};
+
+/* Portal Settings → how versions are kept (see lib/quoteVersions.js). Read
+ * at mount: the shell reloads this iframe after Settings are saved. */
+const prefAutosaveMinutes = () => {
+  try {
+    const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
+    return Number.isFinite(p.quotesAutosaveMinutes) && p.quotesAutosaveMinutes >= 0 ? p.quotesAutosaveMinutes : 10;
+  } catch {
+    return 10;
+  }
+};
+const prefDownloadOnSave = () => {
+  try {
+    const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
+    return p.quotesDownloadOnSave === true;
+  } catch {
+    return false;
   }
 };
 
@@ -83,9 +106,14 @@ function takeInitialView() {
 }
 
 export default function App() {
-  const [projects, setProjects, projectsStatus, saveProjectsNow] = useStoredState(PROJECTS_INDEX_KEY, []);
+  // Both cache-first (see storage.js): the index and the rates paint from the
+  // last-known copy immediately and reconcile against the database behind.
+  // "syncing" means exactly that — a value is showing but not yet confirmed
+  // — and the one-off migrations below wait for "saved" (see `settled`).
+  const [projects, setProjects, projectsStatus, saveProjectsNow] = useStoredState(PROJECTS_INDEX_KEY, [], { cacheFirst: true });
   const initialRates = useMemo(() => defaultRates(), []);
-  const [rates, setRates, ratesStatus] = useStoredState("boma-rates", initialRates);
+  const [rates, setRates, ratesStatus] = useStoredState("boma-rates", initialRates, { cacheFirst: true });
+  const settled = (status) => status !== "loading" && status !== "syncing";
   const [initialView] = useState(takeInitialView);
   const [activeId, setActiveId] = useState(() => {
     // A pending Planner/Project Folder jump always wins over whatever project
@@ -106,15 +134,48 @@ export default function App() {
       else window.localStorage.removeItem(ACTIVE_PROJECT_KEY);
     } catch { /* best-effort */ }
   }, [activeId]);
-  // One-time formwork price corrections: Conventional $150 → $60/m² and
-  // Edgeform $50 → $8/lm. A stored rates blob carrying the OLD SEED value
-  // (any rates-modal save persisted the whole seeded object) gets the new
-  // figure once; any other stored figure is a deliberate edit — untouched.
+  /* Catalog price corrections, applied once to a stored rates blob.
+   *
+   * The Rates Library (portal/rates-library.html) is BOMA's real price
+   * list and RULES: where the two disagreed, the catalog was wrong. Each
+   * entry is [key, the old seeded figure, the Rates Library figure]. A stored
+   * value still equal to the old seed was never touched by anyone, so it is
+   * corrected; ANY other figure is a deliberate edit and is left alone.
+   *
+   * This runs because a browser persists the WHOLE seeded rates object the
+   * first time it saves — without it, a corrected catalog price never reaches
+   * an install that has been used (see the drift banner in RatesModal, which
+   * catches the same problem for edits this table doesn't cover).
+   *
+   * NOTE: an earlier version of this effect ran the two formwork rows the
+   * WRONG WAY (150 → 60 and 50 → 8), which is what made conventional formwork
+   * price at well under half its real rate on the element cards while the
+   * Rates Library showed $150. The direction is the whole point of the table.
+   */
   useEffect(() => {
-    if (ratesStatus === "loading") return;
+    if (!settled(ratesStatus)) return;
     const fixes = [
-      [rateKey("FORMWORK", "Conventional", "m2"), 150, 60],
-      [rateKey("FORMWORK", "Edgeform", "m"), 50, 8],
+      [rateKey("FORMWORK", "Conventional", "m2"), 60, 150],
+      [rateKey("FORMWORK", "Edgeform", "m"), 8, 50],
+      [rateKey("CONCRETE", "15 mpa", "m3"), 196.5, 197],
+      [rateKey("CONCRETE", "20 mpa", "m3"), 207.5, 199],
+      [rateKey("CONCRETE", "25 mpa", "m3"), 212.5, 204],
+      [rateKey("CONCRETE", "32 mpa", "m3"), 221.5, 213],
+      [rateKey("CONCRETE", "40 mpa", "m3"), 233.5, 225],
+      [rateKey("CONCRETE", "50 mpa", "m3"), 252.5, 264.2],
+      [rateKey("CONCRETE", "25 mpa Agilia", "m3"), 310.5, 318],
+      [rateKey("CONCRETE", "32 mpa Agilia", "m3"), 322.5, 317],
+      [rateKey("CONCRETE", "40 mpa Agilia", "m3"), 334.5, 339],
+      [rateKey("CONCRETE", "40 mpa Agilia (walls)", "m3"), 342.5, 339],
+      [rateKey("REINFORCING ACCESSORIES", "CP 25/40 Bar chairs", "bag"), 16.2, 17.4],
+      [rateKey("REINFORCING ACCESSORIES", "CP 50/65 Bar chairs", "bag"), 17.4, 18],
+      [rateKey("REINFORCING ACCESSORIES", "CP 75/90 Bar chairs", "bag"), 21, 22.2],
+      [rateKey("REINFORCING ACCESSORIES", "CP 85/100 Bar chairs", "bag"), 24, 25.2],
+      [rateKey("REINFORCING ACCESSORIES", "BCPT 30 Bar chairs", "bag"), 19.2, 20.4],
+      [rateKey("REINFORCING ACCESSORIES", "BCPT 100 Bar chairs", "bag"), 45.6, 48],
+      [rateKey("REINFORCING ACCESSORIES", "Base 152", "bag"), 36.6, 38.4],
+      [rateKey("REINFORCING ACCESSORIES", "BP1.6 Tie wire", "roll"), 5.15, 4.8],
+      [rateKey("REINFORCING ACCESSORIES", "Duct Tape", "roll"), 4.5, 4.2],
     ];
     const stale = fixes.filter(([key, oldSeed]) => rates[key] && rates[key].unitCost === oldSeed);
     if (stale.length) {
@@ -124,6 +185,36 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ratesStatus]);
+
+  /* Follow the Rates Library. It is BOMA's authoritative price list, and
+   * Cost Planner and Estimates already read it live — Quotes kept its own
+   * copy, so editing a library price changed nothing on an element card.
+   *
+   * A rate still at its catalog default, or still at whatever this sync last
+   * wrote, belongs to the library and takes its price. Anything an estimator
+   * typed in the Rates modal is left alone (the modal's drift banner shows it
+   * and offers a restore). Runs on load and on the storage event the library
+   * fires when it saves, the same signal Cost Planner listens for. */
+  useEffect(() => {
+    if (!settled(ratesStatus)) return;
+    const apply = () => {
+      const updates = pendingRateUpdates(rates, readLibraryState(), readLastSynced());
+      if (!updates.length) return;                 // nothing to do — never loops
+      const next = { ...rates };
+      const synced = { ...readLastSynced() };
+      updates.forEach(({ key, price }) => {
+        next[key] = { ...(next[key] || {}), unitCost: price };
+        synced[key] = price;
+      });
+      writeLastSynced(synced);
+      setRates(next);
+    };
+    apply();
+    const onStorage = (e) => { if (!e || e.key === RATES_LIBRARY_KEY) apply(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ratesStatus, rates]);
   const [ratesOpen, setRatesOpen] = useState(false);
   const [elementTypesOpen, setElementTypesOpen] = useState(false);
   // Which top-level tab shows when no project is open — Dashboard, Planner
@@ -144,7 +235,7 @@ export default function App() {
   // One-time migration for installs that had a single quote under the old
   // fixed "boma-quote" key before multi-project support existed.
   useEffect(() => {
-    if (projectsStatus === "loading") return;
+    if (!settled(projectsStatus)) return;
     if (projects.length === 0) {
       migrateLegacyQuote().then((migrated) => {
         if (migrated.length) setProjects(migrated);
@@ -165,7 +256,7 @@ export default function App() {
   // browsing context to the Estimates iframe that wrote it) the moment
   // Estimates auto-publishes — no reload needed.
   useEffect(() => {
-    if (projectsStatus === "loading") return;
+    if (!settled(projectsStatus)) return;
 
     const importFromEstimateExport = async (estimateExport) => {
       const { quote: freshQuote } = buildImportFromEstimate(estimateExport);
@@ -237,10 +328,57 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectsStatus, projects]);
 
-  const activeProject = projects.find((p) => p.id === activeId) || null;
+  // A new project is a DRAFT until it has a name or an element: it lives
+  // only in this state, not in the persisted index, so an "Untitled project"
+  // that was opened and abandoned never appears on anyone's dashboard. The
+  // editor promotes it (onPromote) the moment it earns a place; leaving it
+  // unpromoted discards it, data row included.
+  const [draft, setDraft] = useState(null);
+  const activeProject = projects.find((p) => p.id === activeId) || (draft && draft.id === activeId ? draft : null);
+  const activeIsDraft = !!activeProject && !projects.some((p) => p.id === activeProject.id);
 
   const createProject = () => {
     const entry = newProjectEntry();
+    setDraft(entry);
+    setActiveId(entry.id);
+  };
+  const promoteDraft = () => {
+    if (!draft) return;
+    const d = draft;
+    setProjects((ps) => (ps.some((p) => p.id === d.id) ? ps : [...ps, d]));
+    setDraft(null);
+  };
+  const leaveProject = () => {
+    if (draft && activeId === draft.id) {
+      deleteQuote(draft.storageKey);      // may not exist — harmless
+      setDraft(null);
+    }
+    setActiveId(null);
+  };
+  // Dashboard found index entries with no data row (see its comment).
+  const pruneProjects = (ids) => setProjects((ps) => ps.filter((p) => !ids.includes(p.id)));
+
+  // "Open .json": a file written by Save-to-computer or a Versions download
+  // becomes a project. Its row is written BEFORE it joins the index, so the
+  // index can never point at a row that isn't there. A file whose project
+  // already exists here opens as a separate copy rather than overwriting —
+  // restoring INTO an existing project is what its Versions list is for.
+  const importQuoteFile = async (text, fileName) => {
+    let parsed;
+    try {
+      parsed = parseQuoteFile(text);
+    } catch (e) {
+      alert(`Couldn't open ${fileName || "that file"}: ${e.message}`);
+      return;
+    }
+    const exists = parsed.projectId && projects.some((p) => p.id === parsed.projectId);
+    const entry = parsed.projectId && !exists
+      ? { id: parsed.projectId, storageKey: quoteStorageKey(parsed.projectId), createdAt: new Date().toISOString() }
+      : newProjectEntry();
+    const quote = exists
+      ? { ...parsed.quote, projectName: `${parsed.quote.projectName || "Untitled project"} (from file)` }
+      : parsed.quote;
+    await writeQuote(entry.storageKey, quote);
     setProjects((ps) => [...ps, entry]);
     setActiveId(entry.id);
   };
@@ -277,7 +415,9 @@ export default function App() {
               </button>
               <button
                 onClick={() => setRatesOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-sm font-medium transition-colors"
+                disabled={ratesStatus === "loading"}
+                title={ratesStatus === "loading" ? "Loading the rates…" : undefined}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-sm font-medium transition-colors"
               >
                 <Settings2 size={16} /> Rates
               </button>
@@ -287,7 +427,7 @@ export default function App() {
             {[
               { key: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
               { key: "planner", label: "Project Management", Icon: Radar },
-              { key: "folder", label: "BOMA Vault", Icon: FolderOpen },
+              { key: "folder", label: "Project Vault", Icon: FolderOpen },
             ].map(({ key, label, Icon }) => (
               <button
                 key={key}
@@ -304,7 +444,7 @@ export default function App() {
           </div>
         </div>
         {view === "dashboard" && (
-          <Dashboard projects={projects} rates={rates} onOpen={setActiveId} onCreate={createProject} onDelete={deleteProject} />
+          <Dashboard projects={projects} rates={rates} onOpen={setActiveId} onCreate={createProject} onDelete={deleteProject} onImportFile={importQuoteFile} onPrune={pruneProjects} />
         )}
         {view === "planner" && <PlannerView projects={projects} onOpen={setActiveId} />}
         {view === "folder" && (
@@ -326,7 +466,9 @@ export default function App() {
       setRates={setRates}
       ratesStatus={ratesStatus}
       saveProjectsNow={saveProjectsNow}
-      onBack={() => setActiveId(null)}
+      onBack={leaveProject}
+      isDraft={activeIsDraft}
+      onPromote={promoteDraft}
       elementTypes={allElementTypes}
       categoryOrder={allCategoryOrder}
       sectionOrder={allSectionOrder}
@@ -336,7 +478,7 @@ export default function App() {
   );
 }
 
-function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow, onBack, elementTypes, categoryOrder, sectionOrder, customTypes, setCustomTypes }) {
+function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow, onBack, isDraft, onPromote, elementTypes, categoryOrder, sectionOrder, customTypes, setCustomTypes }) {
   // Editing a labour rate on any element's crew sheet writes the SAME rates
   // store the Rates modal shows — one library, one figure, everywhere.
   const setLabourRate = (res, v) => {
@@ -367,6 +509,98 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, quote.projectName, quote.gfa, quote.items]);
+
+  // Keeps the dashboard's instant-paint summary of this project current with
+  // every edit (name, client, status, deadline, quantities), so the next visit
+  // never flashes a stale row. Only once the real row has loaded — the blank
+  // placeholder quote held during the load must never be mirrored.
+  useEffect(() => {
+    if (quoteStatus === "loading") return;
+    const t = setTimeout(() => { mirrorQuoteSummary(project.storageKey, quote); }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.storageKey, quote, quoteStatus]);
+
+  // A draft earns its place in the index the moment it has a name or an
+  // element (see App's draft state). Never while its row is still loading.
+  useEffect(() => {
+    if (!isDraft || quoteStatus === "loading") return;
+    if ((quote.projectName || "").trim() || (quote.items || []).length > 0) onPromote();
+  }, [isDraft, quoteStatus, quote.projectName, quote.items, onPromote]);
+
+  /* ---- Versions: unlimited saves, autosaved on an interval, optional local copy ---- */
+  const [autosaveMinutes] = useState(prefAutosaveMinutes);
+  const [downloadOnSave] = useState(prefDownloadOnSave);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [saveNote, setSaveNote] = useState(null);           // { text, tone: "ok" | "error" }
+  const quoteRef = useRef(quote);
+  quoteRef.current = quote;
+  const changedSinceVersionRef = useRef(false);            // anything to autosave?
+  const seenLoadedQuoteRef = useRef(false);
+  useEffect(() => {
+    if (quoteStatus === "loading") return;
+    // The first settled value is the row arriving, not an edit — opening a
+    // project must not by itself produce an autosave version.
+    if (!seenLoadedQuoteRef.current) { seenLoadedQuoteRef.current = true; return; }
+    changedSinceVersionRef.current = true;
+  }, [quote, quoteStatus]);
+  const note = (text, tone = "ok") => {
+    setSaveNote({ text, tone });
+    setTimeout(() => setSaveNote((cur) => (cur && cur.text === text ? null : cur)), tone === "ok" ? 4000 : 12000);
+  };
+  const keepVersion = async (source) => {
+    const v = await saveVersion(project.id, quoteRef.current, source);
+    changedSinceVersionRef.current = false;
+    return v;
+  };
+  // Save = the live row now + the index + Cost Planner (as before), PLUS a
+  // version kept for good, PLUS a copy on this computer when Settings say so.
+  const handleSave = async () => {
+    saveQuoteNow();
+    saveProjectsNow();
+    publishQuoteToCostPlanner(project.id, quote);
+    if (isDraft) onPromote();
+    try {
+      await keepVersion("manual");
+      note(`Saved — version kept ${new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}`);
+    } catch (e) {
+      note(e?.code === "VERSIONS_UNAVAILABLE" ? e.message : `Saved, but the version could not be kept: ${e?.message || e}`, "error");
+    }
+    if (downloadOnSave) {
+      try { await downloadQuoteFile(project.id, quoteRef.current, "manual"); } catch (e) { note(`Couldn't save the copy to this computer: ${e?.message || e}`, "error"); }
+    }
+  };
+  const handleSaveToComputer = async () => {
+    saveQuoteNow();
+    if (isDraft) onPromote();
+    try {
+      const how = await downloadQuoteFile(project.id, quoteRef.current, "manual");
+      if (how === "cancelled") note("Save to computer cancelled");
+      else note(how === "picker" ? "Saved to the folder you chose" : "Saved to this computer (check your Downloads folder)");
+    } catch (e) {
+      note(`Couldn't save to this computer: ${e?.message || e}`, "error");
+    }
+  };
+  // Autosave: a version every N minutes while something has changed.
+  useEffect(() => {
+    if (!(autosaveMinutes > 0) || quoteStatus === "loading") return;
+    const id = setInterval(async () => {
+      if (!changedSinceVersionRef.current) return;
+      try {
+        await keepVersion("autosave");
+        note(`Autosaved a version ${new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}`);
+      } catch { /* the next tick tries again; a manual Save reports failures */ }
+    }, autosaveMinutes * 60 * 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaveMinutes, project.id, quoteStatus]);
+  // Restore keeps what is on screen NOW as its own version first, so a
+  // restore can be undone from the same list.
+  const restoreVersion = async (restoredQuote) => {
+    try { await keepVersion("before-restore"); } catch { /* still restore — the live row is the moving copy */ }
+    setQuote({ ...restoredQuote });
+    note("Version restored — what you had before is kept as a version too");
+  };
 
   const [ratesOpen, setRatesOpen] = useState(false);
   const [elementTypesOpen, setElementTypesOpen] = useState(false);
@@ -444,8 +678,19 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
     quoteStatus === "error" || ratesStatus === "error" ? "error"
     : quoteStatus === "saving" || ratesStatus === "saving" ? "saving"
     : quoteStatus === "unavailable" || ratesStatus === "unavailable" ? "unavailable"
-    : quoteStatus === "loading" || ratesStatus === "loading" ? "loading"
+    : quoteStatus === "loading" || ratesStatus === "loading" || ratesStatus === "syncing" ? "loading"
     : "saved";
+
+  // Nothing editable until this project's own row has arrived. The hook
+  // cannot save an edit made before it has loaded, and the arriving row
+  // then replaces whatever was typed — so for the length of one round trip
+  // a keystroke here was silently lost. Worse for an EXISTING project: the
+  // screen showed a blank quote for that moment, and an edit made against
+  // it would have been saved as the whole quote. A brief blank (same as the
+  // dashboard's own gate) is the only safe state to show.
+  if (quoteStatus === "loading") {
+    return <div className="min-h-screen bg-neutral-100" />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-100 print:bg-white text-neutral-900 font-sans">
@@ -485,7 +730,7 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
               setPrintPreviewOpen(true);
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-sm font-medium transition-colors flex-none"
-            title="Your own cost/material/labour breakdown, for internal use"
+            title="BOMA's own cost/material/labour breakdown, for internal use"
           >
             <Printer size={16} /> Internal Quote
           </button>
@@ -505,7 +750,7 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
               setTenderQuoteOpen(true);
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-sm font-medium transition-colors flex-none"
-            title="The full tender quotation document — the formal quotation layout, every line item and section editable, seeded from this quote and its estimating quantities, with a print preview. Never includes markup drawings."
+            title="The full tender quotation document — BOMA's real quotation layout, every line item and section editable, seeded from this quote and its estimating quantities, with a print preview. Never includes markup drawings."
           >
             <Printer size={16} /> Tender Quote
           </button>
@@ -524,7 +769,9 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
           </button>
           <button
             onClick={() => setRatesOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-sm font-medium transition-colors flex-none"
+            disabled={ratesStatus === "loading"}
+            title={ratesStatus === "loading" ? "Loading the rates…" : undefined}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-sm font-medium transition-colors flex-none"
           >
             <Settings2 size={16} /> Rates
           </button>
@@ -552,17 +799,56 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
           </select>
         </div>
         <div className="flex items-center gap-3">
+          {saveNote && (
+            <span className={`text-xs font-medium ${saveNote.tone === "error" ? "text-red-600" : "text-emerald-700"}`}>{saveNote.text}</span>
+          )}
           <SaveBadge status={overallStatus} />
           <button
             type="button"
-            onClick={() => { saveQuoteNow(); saveProjectsNow(); publishQuoteToCostPlanner(project.id, quote); }}
+            onClick={() => setVersionsOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50"
+            title="Every saved version of this quote — restore or download any of them"
+          >
+            <History size={14} /> Versions
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveToComputer}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50"
+            title="Save this quote as a file on this computer (opens a Save-as dialog where the browser allows it, otherwise goes to Downloads)"
+          >
+            <HardDriveDownload size={14} /> Save to computer
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
             className="text-xs font-semibold px-3 py-1.5 rounded bg-orange-600 text-white hover:bg-orange-700"
-            title="Save this quote's current work, its place in the Projects Dashboard, and push it to Cost Planner's BOQ immediately"
+            title="Save now: the live quote, its place on the Dashboard, Cost Planner's BOQ — and keep a version of it for good"
           >
             Save
           </button>
         </div>
       </div>
+      {overallStatus === "error" && (
+        <div className="print:hidden max-w-7xl mx-auto px-4 pb-3">
+          <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 text-red-800 text-sm px-4 py-3">
+            <AlertTriangle size={18} className="flex-none mt-0.5" />
+            <div>
+              <b>Your changes are not reaching the cloud.</b> They are safe in this tab and the app keeps retrying on its own — but do not close this tab
+              until the badge says <b>Saved</b>. To be sure, click <b>Save to computer</b> now and keep the file.
+            </div>
+          </div>
+        </div>
+      )}
+      {versionsOpen && (
+        <VersionsModal
+          projectId={project.id}
+          projectName={quote.projectName}
+          autosaveMinutes={autosaveMinutes}
+          onRestore={restoreVersion}
+          onClose={() => setVersionsOpen(false)}
+        />
+      )}
 
       <div className="print:hidden max-w-7xl mx-auto px-4 pb-16 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 items-start">
         <div className="space-y-3">
@@ -576,6 +862,8 @@ function ProjectEditor({ project, rates, setRates, ratesStatus, saveProjectsNow,
             rates={rates}
             estimateGeometry={quote.estimateGeometry}
             onChangeItem={updateItem}
+            assumptions={quote.assumptions}
+            onChangeAssumptions={(assumptions) => setQuote((q) => ({ ...q, assumptions }))}
           />
           {items.map((item) => (
             <ElementCard

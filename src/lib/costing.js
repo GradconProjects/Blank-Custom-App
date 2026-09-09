@@ -49,13 +49,27 @@ export function getDefaultMargin() {
   return DEFAULT_MARGIN;
 }
 
-/** MARGIN_STEPS with the (possibly customised) default margin merged in,
- * sorted — so the ladder always contains a row for the default margin and
- * the Dashboard/QuoteSummary "default" highlight always has a row to hit. */
+/** The margin ladder's rungs, as fractions. The Settings preference
+ * `marginStepsPct` — a comma-separated list of whole percents, e.g.
+ * "10,20,30,40" — replaces the catalog's MARGIN_STEPS; anything unparseable,
+ * empty or out of range (0 to <95, so the divide-by-(1−margin) can never blow
+ * up) falls back to the catalog list. The default margin is always merged in
+ * and the result sorted, so the Dashboard/QuoteSummary "default" highlight
+ * always has a row to land on. */
 export function getMarginSteps() {
   const def = getDefaultMargin();
-  const steps = MARGIN_STEPS.includes(def) ? MARGIN_STEPS : [...MARGIN_STEPS, def];
-  return [...steps].sort((a, b) => a - b);
+  const p = readPrefs();
+  let steps = MARGIN_STEPS;
+  if (typeof p.marginStepsPct === "string" && p.marginStepsPct.trim()) {
+    const parsed = p.marginStepsPct
+      .split(",")
+      .map((x) => Number(String(x).trim()))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n < 95)
+      .map((n) => n / 100);
+    if (parsed.length) steps = [...new Set(parsed)];
+  }
+  const withDef = steps.includes(def) ? steps : [...steps, def];
+  return [...withDef].sort((a, b) => a - b);
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -103,11 +117,17 @@ export function lookupRate(rates, key, fallback) {
  * silently disagree. See CLAUDE.md "Costing rules" and the areaBasis/
  * weightBasis comment above FULL_CATALOG in data/catalog.js.
  */
-export function computeRowTotal(cat, rate, qty) {
+export function computeRowTotal(cat, rate, qty, ctx) {
   // Contract MINIMUMS (a "4 hour min" pump bills 4 hours for a 1-hour job).
   // Applied first so every basis below prices the billed quantity, and only
   // to a row that has a quantity — a blank row still costs nothing.
   if (qty > 0 && rate.minQty > 0 && qty < rate.minQty) qty = rate.minQty;
+  // Reinforcement entered as a RATE: qty is kg of steel per m³ of concrete,
+  // so the tonnage comes from the element's own poured volume (carried in
+  // ctx, built by rowContext). No concrete entered = no steel, no cost.
+  if (cat.volumeRateBasis) {
+    return ((qty * ((ctx && ctx.concreteM3) || 0)) / 1000) * rate.unitCost;
+  }
   if (cat.weightBasis && rate.unitWeight) {
     return ((qty * rate.unitWeight) / 1000) * rate.unitCost;
   }
@@ -145,20 +165,42 @@ function pouredVolume(item) {
 }
 
 /**
- * Holcim MINIMUM CARTAGE, applied automatically. The fee is charged where a
- * DELIVERED LOAD is under MIN_CARTAGE_THRESHOLD_M3 (4 m³), on the
- * undelivered part of that load — (4 − load) × $80/m³ — per truck, NOT on
- * the order total. A quote holds a total volume rather than a delivery
- * schedule, so the volume is split into whole truck loads (the editable
- * "Concrete truck load size" production rate, 8 m³ by default) and the
- * shortfall is charged on the last, part load: 11 m³ delivered 8+3 is 1 m³
- * short, so $80. A pour that divides evenly, or whose last load already
- * reaches 4 m³, attracts nothing.
+ * The per-element context computeRowTotal needs for any basis that depends on
+ * quantities OUTSIDE the row's own category — currently just volumeRateBasis
+ * (REINFORCEMENT BY RATE), which prices kg/m³ against the element's poured
+ * concrete. Build it once per element and pass it to every computeRowTotal
+ * call, so all four callers (computeElementCost, CategoryBlock,
+ * PrintQuoteReport, exportQuote) read the same volume.
+ */
+export function rowContext(item) {
+  return { concreteM3: pouredVolume(item) };
+}
+
+/**
+ * MINIMUM CARTAGE, applied automatically. The poured volume is divided by
+ * the editable "Minimum cartage load size" production rate (4 m³ by default,
+ * MIN_CARTAGE_THRESHOLD_M3) into whole loads, and the minimum-cartage
+ * rule is applied to the REMAINDER of that division: a remainder is a part
+ * load, so it is charged (4 − remainder) × $80/m³ for the concrete it is
+ * short of a full 4 m³. A volume that divides evenly by 4 leaves no remainder
+ * and attracts nothing.
+ *
+ *   11 m³ → 2 × 4 = 8, remainder 3 → 1 m³ short → $80
+ *   12 m³ → 3 × 4 = 12, remainder 0 → nothing
+ *    5 m³ → 1 × 4 = 4, remainder 1 → 3 m³ short → $240
+ *    3 m³ → 0 × 4 = 0, remainder 3 → 1 m³ short → $80
+ *
+ * This replaces the earlier reading, which split the volume into 8 m³ TRUCK
+ * loads and charged only the last part load — that left anything whose final
+ * truck already carried 4 m³ or more (5 m³ in one load, say) with no charge
+ * at all. Dividing by 4 charges every part load, which is the rule Grady
+ * asked for; TRUCK_LOAD_M3 and the "Concrete truck load size" production rate
+ * no longer feed this calculation.
  *
  * Typing anything into the Minimum cartage row's Qty takes the row fully
- * manual — that's how a known delivery split (7+4, say) is priced exactly.
+ * manual — that's how a known delivery split is priced exactly.
  * Returns { key, qty (m³ short), unitCost ($/m³ short), total, loads,
- * lastLoad } or null.
+ * remainder, lastLoad } or null.
  */
 export function autoMinimumCartage(item, rates) {
   const cat = FULL_CATALOG.find((c) => c.key === "CONCRETE");
@@ -169,14 +211,20 @@ export function autoMinimumCartage(item, rates) {
   if (typed !== undefined && typed !== "") return null; // the estimator's own entry wins
   const vol = pouredVolume(item);
   if (!(vol > 0)) return null;
-  const capacity = prodRate(rates, "Concrete truck load size", "m³/load", TRUCK_LOAD_M3);
-  if (!(capacity > 0)) return null;
-  const loads = Math.ceil(vol / capacity - 1e-9);
-  const lastLoad = vol - (loads - 1) * capacity;
-  const short = round2(Math.max(0, MIN_CARTAGE_THRESHOLD_M3 - lastLoad));
+  // Editable in the Rates modal like every other production figure; the
+  // catalog constant is only the fallback when nothing is saved.
+  const threshold = prodRate(rates, "Minimum cartage load size", "m³/load", MIN_CARTAGE_THRESHOLD_M3);
+  if (!(threshold > 0)) return null;
+  const wholeLoads = Math.floor(vol / threshold + 1e-9);
+  const remainder = round2(Math.max(0, vol - wholeLoads * threshold));
+  if (!(remainder > 0)) return null; // divides evenly — every load is a full one
+  const short = round2(threshold - remainder);
   if (!(short > 0)) return null;
   const rate = lookupRate(rates, key, { unitCost: mc.unitCost ?? 0 });
-  return { key, qty: short, unitCost: rate.unitCost ?? 0, total: short * (rate.unitCost ?? 0), loads, lastLoad: round2(lastLoad) };
+  return {
+    key, qty: short, unitCost: rate.unitCost ?? 0, total: short * (rate.unitCost ?? 0),
+    loads: wholeLoads + 1, remainder, lastLoad: remainder, threshold,
+  };
 }
 /** Kept so older imports keep working. */
 export const autoSmallLoadCharge = autoMinimumCartage;
@@ -206,51 +254,6 @@ export function autoEnvironmentLevy(item, rates) {
 }
 
 /** Creates a fresh quote line item for the given element type. */
-const REO_RATE_PRODUCT_MATCH = /reinforcement by rate/i;
-
-/**
- * REINFORCEMENT BY RATE — kg of steel per m³ of concrete.
- *
- * Early in a job nobody has a bar schedule, but everyone has a rule of thumb:
- * a suspended slab runs ~90 kg/m³, columns ~150. This lets an estimator set
- * that rate on the element (`item.reoRatePerM3`) and have the tonnage fall
- * out of the volume already entered, instead of taking off bars they don't
- * have drawings for yet.
- *
- * It is OFF unless the element carries a rate — no rate, no row, no cost. A
- * default rate here would silently add reinforcement to every existing quote,
- * which is precisely the kind of quiet wrong number the rules in CLAUDE.md
- * exist to prevent.
- *
- * Same manual-override contract as the concrete delivery fees: typing a Qty
- * on the "Reinforcement by rate" row takes that row fully manual (the
- * estimator has a real tonnage and wants it billed exactly), and this returns
- * null so the ordinary computeRowTotal path prices it instead.
- *
- * Volume is pouredVolume(item) — the same figure the delivery fees use, so
- * additives and the fee rows never inflate it.
- *
- * Returns { key, ratePerM3, volume, tonnes, unitCost, total } or null.
- */
-export function autoReinforcementByRate(item, rates) {
-  const ratePerM3 = Number(item.reoRatePerM3) || 0;
-  if (ratePerM3 <= 0) return null;
-
-  const cat = FULL_CATALOG.find((c) => c.key === "PROCESSED BAR");
-  const product = cat && cat.products.find((p) => REO_RATE_PRODUCT_MATCH.test(p.name));
-  if (!product) return null;
-
-  const key = rateKey(cat.key, product.name, product.unit);
-  if ((Number(item.qtys[key]) || 0) > 0) return null; // typed = manual
-
-  const volume = pouredVolume(item);
-  if (volume <= 0) return null;
-
-  const rate = lookupRate(rates, key, { unitCost: product.unitCost ?? 0 });
-  const tonnes = (volume * ratePerM3) / 1000;
-  return { key, ratePerM3, volume, tonnes, unitCost: rate.unitCost, total: tonnes * rate.unitCost };
-}
-
 export function newElementItem(type) {
   return {
     id: uid(),
@@ -285,6 +288,10 @@ export function newElementItem(type) {
  *  - lengthBasis categories (currently only STOCK BAR) cost as
  *    ceil(qty / barLength) * unitCost — qty is metres of bar needed, bars
  *    are bought whole (fixed stock lengths) so the count always rounds up.
+ *  - volumeRateBasis categories (currently only REINFORCEMENT BY RATE) cost
+ *    as (qty * concreteM3 / 1000) * unitCost — qty is kg of steel per m³ and
+ *    the volume is this element's own poured concrete (rowContext), so these
+ *    rows are free until concrete is entered.
  *  - All other categories cost as qty * unitCost directly, even if the
  *    product also carries a unitWeight (Trench Mesh shows tonnage for
  *    information only — do not switch it to weight-based costing, its
@@ -302,6 +309,7 @@ export function computeElementCost(item, rates) {
   const categoryTotals = {};
   let materialsTotal = 0;
   let concreteQty = 0;
+  const ctx = rowContext(item); // poured m³, for the kg/m³ reinforcement rows
 
   FULL_CATALOG.forEach((cat) => {
     let catTotal = 0;
@@ -310,7 +318,7 @@ export function computeElementCost(item, rates) {
       const qty = Number(item.qtys[qKey]) || 0;
       if (qty > 0) {
         const rate = lookupRate(rates, qKey, { unitCost: p.unitCost ?? 0, unitWeight: p.unitWeight, sheetArea: p.sheetArea });
-        const rowTotal = computeRowTotal(cat, rate, qty);
+        const rowTotal = computeRowTotal(cat, rate, qty, ctx);
         catTotal += rowTotal;
         if (cat.key === "CONCRETE" && !CONCRETE_CHARGE_MATCH(p.name)) concreteQty += qty; // the delivery fees are $/m³ charges, not poured volume
       }
@@ -330,15 +338,6 @@ export function computeElementCost(item, rates) {
       categoryTotals["CONCRETE"] = (categoryTotals["CONCRETE"] || 0) + fee.total;
       materialsTotal += fee.total;
     });
-
-  // Reinforcement priced off a kg/m³ rate rather than a bar schedule. Same
-  // shape as the fees above — dormant unless the element carries a rate, and
-  // stood down the moment a Qty is typed on its row.
-  const reoByRate = autoReinforcementByRate(item, rates);
-  if (reoByRate) {
-    categoryTotals["PROCESSED BAR"] = (categoryTotals["PROCESSED BAR"] || 0) + reoByRate.total;
-    materialsTotal += reoByRate.total;
-  }
 
   // Seamless labour: with labourAuto on, empty matrix cells are driven live
   // by the rate-of-work engine (autoLabourQtys) — quantities entered above
@@ -401,22 +400,19 @@ export function computeElementCost(item, rates) {
  * steel-fixing hours; kept separate from computeElementCost's own totals
  * (which only ever COST Processed Bar by weight — see CLAUDE.md rule 2).
  */
-/**
- * The reinforcement categories, and ONLY these. This used to be "any product
- * carrying a unitWeight", which was true right up until structural steel
- * arrived — every UB, SHS and purlin carries a kg/m too, and they were
- * silently counted as reinforcement, booking steel-FIXING crew days for
- * steel that gets erected by a crane. A whitelist can't drift that way.
- */
-const REINFORCEMENT_CATEGORIES = new Set([
-  "TRENCH MESH", "SQUARE MESH", "STOCK BAR", "PROCESSED BAR",
-]);
-
 export function computeElementReinforcementTonnes(item, rates) {
   let totalKg = 0;
+  const ctx = rowContext(item);
   FULL_CATALOG.forEach((cat) => {
-    if (!REINFORCEMENT_CATEGORIES.has(cat.key)) return;
     cat.products.forEach((p) => {
+      // Reinforcement entered as kg/m³ carries no unitWeight — its tonnage is
+      // the rate against the poured volume. Counted here so a rate-priced
+      // element still drives steel-fixing crew days like a bar-listed one.
+      if (cat.volumeRateBasis) {
+        const q = Number(item.qtys[rateKey(cat.key, p.name, p.unit)]) || 0;
+        if (q > 0) totalKg += q * ctx.concreteM3;
+        return;
+      }
       if (p.unitWeight == null) return;
       const qKey = rateKey(cat.key, p.name, p.unit);
       const qty = Number(item.qtys[qKey]) || 0;
@@ -429,19 +425,6 @@ export function computeElementReinforcementTonnes(item, rates) {
       totalKg += units * rate.unitWeight;
     });
   });
-  // Rate-based reinforcement has no unitWeight for the loop above to scan —
-  // its Qty is already tonnes — so it's added here instead. Both routes
-  // count: the auto rate, and a tonnage typed straight onto the row. Without
-  // this a rate-priced element would report zero steel and earn no
-  // steel-fixing crew days.
-  const reoCat = FULL_CATALOG.find((c) => c.key === "PROCESSED BAR");
-  const reoProduct = reoCat && reoCat.products.find((p) => REO_RATE_PRODUCT_MATCH.test(p.name));
-  if (reoProduct) {
-    const typed = Number(item.qtys[rateKey(reoCat.key, reoProduct.name, reoProduct.unit)]) || 0;
-    if (typed > 0) totalKg += typed * 1000;
-  }
-  const byRate = autoReinforcementByRate(item, rates);
-  if (byRate) totalKg += byRate.tonnes * 1000;
   return totalKg / 1000;
 }
 
@@ -452,16 +435,6 @@ const EXCAVATE_TASK_MATCH = /excavate/i;                      // "Excavate & pre
 const FORMWORK_TASK_MATCH = /formwork|box out|prop & form/i;  // legacy per-type templates only
 const STRIP_TASK_MATCH = /^strip/i;
 const GENERAL_TASK_MATCH = /washout|tidy|clean|patch/i;       // "Washout / clean / tidy"
-// The steel erection sequence (LABOUR_TEMPLATES.steel). "Erect steel frame"
-// is driven by tonnage, sheeting by area; bolt-up, welding and the rest are
-// too piece-count dependent to derive and stay manual, like formwork.
-/** Categories whose Qty is metres of section priced $/tonne — their tonnage
- *  is what the erection crew stands. */
-const STEEL_SECTION_CATEGORY = /^STEEL SECTIONS/;
-/** Fabricated assemblies already quoted by the tonne. */
-const STEEL_FABRICATED_CATEGORY = /^STEEL FRAMING/;
-const STEEL_ERECT_TASK_MATCH = /erect steel/i;
-const STEEL_SHEET_TASK_MATCH = /roof & wall sheeting/i;
 
 /** The quantities each crew-sheet row draws on, read DIRECTLY from the
  * element's entered line items: concrete m³ from the CONCRETE rows, formwork
@@ -470,39 +443,18 @@ const STEEL_SHEET_TASK_MATCH = /roof & wall sheeting/i;
  * labour engine can run inside computeElementCost without recursion. */
 export function labourQuantities(item, rates) {
   let concreteM3 = 0, formworkM2 = 0, finishM2 = 0, excavationM3 = 0;
-  let steelTonnes = 0, claddingM2 = 0;
   FULL_CATALOG.forEach((cat) => {
-    const steelSection = cat.weightBasis && STEEL_SECTION_CATEGORY.test(cat.key);
-    const steelFabricated = STEEL_FABRICATED_CATEGORY.test(cat.key);
-    const cladding = cat.key === "ROOF & WALL CLADDING";
-    if (!steelSection && !steelFabricated && !cladding &&
-        cat.key !== "CONCRETE" && cat.key !== "FORMWORK" && cat.key !== "SQUARE MESH" && cat.key !== "OTHER ALLOWANCES") return;
+    if (cat.key !== "CONCRETE" && cat.key !== "FORMWORK" && cat.key !== "SQUARE MESH" && cat.key !== "OTHER ALLOWANCES") return;
     cat.products.forEach((p) => {
-      const qKey = rateKey(cat.key, p.name, p.unit);
-      const qty = Number(item.qtys[qKey]) || 0;
+      const qty = Number(item.qtys[rateKey(cat.key, p.name, p.unit)]) || 0;
       if (qty <= 0) return;
-      if (steelSection) {
-        // weightBasis: Qty is metres, so tonnage needs the section's kg/m —
-        // the rate, not the catalog, so a Rates-modal override is honoured.
-        const rate = lookupRate(rates, qKey, { unitWeight: p.unitWeight });
-        steelTonnes += (qty * (rate.unitWeight || 0)) / 1000;
-      } else if (steelFabricated) {
-        // These are already quoted in tonnes of finished frame; the per-item
-        // and per-metre lines in the same category aren't erection tonnage.
-        if (p.unit === "t") steelTonnes += qty;
-      } else if (cladding) {
-        if (p.unit === "m2") claddingM2 += qty;
-      } else if (cat.key === "CONCRETE" && !SURCHARGE_PRODUCT_MATCH.test(p.name)) concreteM3 += qty; // the surcharge row is a fee, not poured volume
+      if (cat.key === "CONCRETE" && !SURCHARGE_PRODUCT_MATCH.test(p.name)) concreteM3 += qty; // the surcharge row is a fee, not poured volume
       else if (cat.key === "FORMWORK" && p.unit === "m2") formworkM2 += qty;
       else if (cat.key === "SQUARE MESH") finishM2 += qty;
       else if (cat.key === "OTHER ALLOWANCES" && /soil removal/i.test(p.name)) excavationM3 += qty; // spoil volume ≈ excavation m³
     });
   });
-  return {
-    concreteM3, formworkM2, finishM2, excavationM3,
-    steelTonnes: round2(steelTonnes), claddingM2,
-    reinfTonnes: computeElementReinforcementTonnes(item, rates),
-  };
+  return { concreteM3, formworkM2, finishM2, excavationM3, reinfTonnes: computeElementReinforcementTonnes(item, rates) };
 }
 
 /**
@@ -564,8 +516,6 @@ export function taskRowMeta(taskName, lq) {
   if (CONCRETE_POUR_TASK_MATCH.test(taskName)) return { unit: "m³", autoQty: lq ? lq.concreteM3 : undefined };
   if (STEEL_FIXING_TASK_MATCH.test(taskName)) return { unit: "t", autoQty: lq ? round2(lq.reinfTonnes) : undefined };
   if (FINISH_TASK_MATCH.test(taskName)) return { unit: "m²", autoQty: lq ? lq.finishM2 : undefined };
-  if (STEEL_ERECT_TASK_MATCH.test(taskName)) return { unit: "t", autoQty: lq ? lq.steelTonnes : undefined };
-  if (STEEL_SHEET_TASK_MATCH.test(taskName)) return { unit: "m²", autoQty: lq ? lq.claddingM2 : undefined };
   if (EXCAVATE_TASK_MATCH.test(taskName)) return { unit: "m³", autoQty: lq ? lq.excavationM3 : undefined };
   if (FORMWORK_TASK_MATCH.test(taskName) && !STRIP_TASK_MATCH.test(taskName)) return { unit: "m²", autoQty: lq ? lq.formworkM2 : undefined };
   return { unit: "", autoQty: undefined };
@@ -625,7 +575,6 @@ export function autoLabourQtys(item, rates) {
   const finishM2Block = prodRate(rates, "Surface finishing — m² per crew-day", "m²/day", 300);
   const generalM3Block = prodRate(rates, "General labour — m³ per crew-day", "m³/day", 60);
   const pumpHrsPour = prodRate(rates, "Concrete pump — hours per pour", "hrs", 6);
-  const erectTBlock = prodRate(rates, "Steel erection — tonnes per crew-day", "t/day", 4);
 
   // qty → crew-days, decimals kept: 36 m³ at 10 m³/crew-day is 3.6
   // crew-days, 2.99 t of steel is 2.99 — the old whole-crew rounding
@@ -664,23 +613,9 @@ export function autoLabourQtys(item, rates) {
       put(task, "steelfixer_day", crewDays(q, steelTBlock)); // 1 t = a 5-man crew's day
     } else if (FINISH_TASK_MATCH.test(task.name)) {
       put(task, "concreter_day", crewDays(q, finishM2Block));
-    } else if (STEEL_ERECT_TASK_MATCH.test(task.name)) {
-      // Standing the frame also books the crane for the same days — steel
-      // does not go up without one, and forgetting the crane is the classic
-      // way a steel quote comes in short.
-      const days = crewDays(q, erectTBlock);
-      put(task, "erector_day", days);
-      put(task, "crane_day", days > 0 ? round2(days) : 0);
-    } else if (STEEL_SHEET_TASK_MATCH.test(task.name)) {
-      put(task, "erector_day", crewDays(q, prodRate(rates, "Surface finishing — m² per crew-day", "m²/day", 300)));
     } else if (GENERAL_TASK_MATCH.test(task.name)) {
       put(task, "labourer_day", crewDays(task.qty !== undefined && task.qty !== "" ? Number(task.qty) || 0 : lq.concreteM3, generalM3Block));
     }
-    // Bolt-up, site welding, purlins/girts and touch-up get NO auto fill
-    // either: on light framing the piece count drives them far more than the
-    // tonnage does, so a derived figure would be confidently wrong. Their Qty
-    // columns stay blank and the cells are entered by hand.
-    //
     // Formwork ("prop & form") and Excavation rows deliberately get NO auto
     // crew/plant fill — propping effort varies by system and excavator days
     // by ground conditions, so those cells stay blank and are entered
@@ -715,6 +650,12 @@ export function computeMarginLadder(directCost, overheadPct, contingencyPct, gfa
       margin,
       sellExGst,
       sellIncGst,
+      // The markup on COST that lands this margin on the SELL price — the
+      // two are different numbers and confusing them is the classic way a
+      // job comes in under. A 25% margin needs 33.33% added to cost; adding
+      // 25% only earns 20%. Shown beside every rung so the ladder states
+      // both rather than leaving the reader to convert.
+      markupOnCost: margin < 1 ? margin / (1 - margin) : 0,
       perM2: gfaNum > 0 ? sellExGst / gfaNum : 0,
     };
   });

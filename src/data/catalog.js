@@ -1,5 +1,5 @@
 /**
- * BOMA ESTIMATES catalog data.
+ * BOMA catalog data.
  *
  * Plain data only — no React, no side effects. This file (and lib/costing.js,
  * which consumes it) is deliberately kept importable by plain Node so the
@@ -10,7 +10,7 @@
  */
 
 /* ---------- Resource / labour catalog ---------- */
-// Crew-sheet columns, in the order they read on the paper labour sheet:
+// Crew-sheet columns, in the order they read on BOMA's labour sheet:
 // the three 3+-person crews first, then plant, pump (hr AND m³ — distinct
 // keys, see CLAUDE.md rule 5), crane. `crew: true` marks the minimum-crew
 // columns; they count CREW-days (a whole crew booked for a day), so their
@@ -24,17 +24,17 @@
 // catalog's "Minimum cartage" automatically — see autoMinimumCartage in
 // lib/costing.js. Typed values on the Minimum cartage row always win.
 //
-// Holcim (Melbourne Metro & Mornington Peninsula) service-fee schedule,
-// effective 1 May 2026: the fee applies where a DELIVERED LOAD is under
-// 4.0 m³, and is charged on the undelivered part of that load — i.e.
-// (4.0 - load) x $80/m³, per truck, not on the order total. An 11 m³ order
-// delivered 7+4 attracts nothing; delivered 8+3 the second truck is 1 m³
-// short, so $80. Quotes hold a total volume rather than a delivery
-// schedule, so the engine splits it into whole truck loads of
-// TRUCK_LOAD_M3 and charges the shortfall on the last (part) load — the
-// realistic worst case. Both figures are editable (the truck size in the
-// Rates modal, the $/m³ on the row itself), and typing a quantity on the
-// row takes it fully manual for a known delivery split.
+// MINIMUM CARTAGE. The poured volume is divided by this minimum load size
+// into whole loads and the REMAINDER of that division — a part load — is
+// charged $80 for every m³ it falls short of it: 11 m³ is 2 loads + 3 m³,
+// so 1 m³ short, $80; 12 m³ divides evenly and costs nothing. This figure
+// is BOTH the divisor and the minimum.
+//
+// It is only the fallback: the live value is the editable "Minimum cartage
+// load size" production rate (see PRODUCTION_RATES below), so a supplier
+// working to a different minimum is a rate edit, not a code change. The
+// $/m³ is editable on the row itself, and typing a quantity on the row
+// takes it fully manual for a known delivery split.
 export const MIN_CARTAGE_THRESHOLD_M3 = 4;
 // Kept as an alias so saved code/tests referring to the old name still read.
 export const SMALL_LOAD_THRESHOLD_M3 = MIN_CARTAGE_THRESHOLD_M3;
@@ -61,13 +61,6 @@ export const RESOURCE_COLS = [
   { key: "pump_hr", name: "Pump", unit: "hr", rate: 250 },
   { key: "pump_m3", name: "Pump", unit: "m³", rate: 10 },
   { key: "crane_day", name: "Crane", unit: "day", rate: 1600 },
-  // Structural steel erection. These appear on every element's matrix like
-  // every other resource (see CLAUDE.md rule 1 — the whole catalog shows
-  // everywhere and a blank cell costs nothing); they only carry figures on
-  // the steel element types.
-  { key: "erector_day", name: "Steel Erection Crew", unit: "man-day", rate: 720, crew: true, men: 4 },
-  { key: "welder_day", name: "Welder", unit: "man-day", rate: 780, crew: true, men: 1 },
-  { key: "ewp_day", name: "EWP / Scissor Lift", unit: "day", rate: 420 },
 ];
 
 /* ---------- Production rates ----------
@@ -95,14 +88,16 @@ export const PRODUCTION_RATES = [
   // auto-derived (propping effort varies by system, excavator days by ground
   // conditions) — entered manually, always. Their Qty columns still prefill.
   { key: "pump_hrs_pour", name: "Concrete pump — hours per pour", unit: "hrs", rate: 6 },
-  // The agitator size the minimum-cartage split assumes — edit here if the
-  // supplier runs smaller/larger trucks on a job.
+  // The load size the minimum-cartage split divides by. The poured volume is
+  // divided by this into whole loads and the remainder is charged the
+  // minimum-cartage rate for every m³ it falls short of it — so this one
+  // figure is both the divisor and the minimum. Edit it if a supplier works
+  // to a different minimum load.
+  { key: "min_cartage_m3", name: "Minimum cartage load size", unit: "m³/load", rate: 4 },
+  // The agitator size. Informational since minimum cartage moved to dividing
+  // by the minimum itself — kept so no saved override is orphaned, and so a
+  // job that wants to reason about truck counts still has the figure.
   { key: "truck_load_m3", name: "Concrete truck load size", unit: "m³/load", rate: 8 },
-  // Structural steel erection, tonnes stood per crew-day. Heavily
-  // job-dependent (piece count matters far more than tonnage on light
-  // framing), so it seeds a starting figure rather than a truth — edit it
-  // per job in the Rates modal.
-  { key: "erect_t_crewday", name: "Steel erection — tonnes per crew-day", unit: "t/day", rate: 4 },
 ];
 
 /* ---------- Labour task templates, keyed by the element's `labour` field ---------- */
@@ -121,21 +116,6 @@ const CREW_SHEET_TASKS = [
   "Additional labour / plant",
   "Additional labour / plant",
 ];
-/* The steel sequence has nothing in common with the concrete one — there is
-   no pour, no finish and no washout, and bolt-up, welding and sheeting are
-   each their own day's work. */
-const STEEL_ERECTION_TASKS = [
-  "Site setup / mobilisation",
-  "Set out & survey",
-  "Erect steel frame",
-  "Bolt up, plumb & align",
-  "Site welding",
-  "Purlins, girts & bracing",
-  "Roof & wall sheeting",
-  "Touch-up & make good",
-  "Additional labour / plant",
-];
-
 export const LABOUR_TEMPLATES = {
   excavation: CREW_SHEET_TASKS,
   footing: CREW_SHEET_TASKS,
@@ -143,13 +123,12 @@ export const LABOUR_TEMPLATES = {
   slab_ground: CREW_SHEET_TASKS,
   slab_suspended: CREW_SHEET_TASKS,
   stairs: CREW_SHEET_TASKS,
-  steel: STEEL_ERECTION_TASKS,
 };
 
 /* ---------- Full material catalog ----------
  * weightBasis: true means Total Cost = (Qty * Unit Weight / 1000) * Unit Cost
  *              (Unit Cost is $/tonne). Only PROCESSED BAR is genuinely
- *              priced this way in the supplier pricing.
+ *              priced this way in BOMA's supplier pricing.
  * areaBasis: true means Qty is entered in m² of coverage and Total Cost =
  *            ceil(Qty / Sheet Area) * Unit Cost (Unit Cost is $/sheet).
  *            Only SQUARE MESH works this way — sheets are bought whole, so
@@ -169,16 +148,38 @@ export const LABOUR_TEMPLATES = {
  *              the tool works out how many whole bars that requires, the
  *              same idea as areaBasis/SQUARE MESH but by length instead of
  *              area.
+ * volumeRateBasis: true means Qty is entered as a REINFORCEMENT RATE in
+ *              kg of steel per m³ of concrete, and Total Cost =
+ *              (Qty * the element's poured m³ / 1000) * Unit Cost (Unit Cost
+ *              is $/tonne, as for weightBasis). This is the one basis whose
+ *              cost depends on ANOTHER category's quantities — the concrete
+ *              rows — so computeRowTotal takes a 4th `ctx` argument
+ *              ({concreteM3}) that every caller builds with rowContext(item).
+ *              Only REINFORCEMENT BY RATE works this way. An element with no
+ *              concrete entered costs nothing here, however high the rate.
  * See CLAUDE.md → "Costing rules" before changing any of these flags on any
  * category, and lib/costing.js → computeRowTotal, the ONE place that
  * implements this — never recompute a row total inline elsewhere.
  */
 export const FULL_CATALOG = [
+  /* The full L-series trench mesh grid: every bar width from 3 to 8 in each
+   * of the four wire gauges, so a schedule calling up a 7 Bar-L11TM has a
+   * product to hit instead of forcing the nearest wrong size. Bars sit at
+   * 100mm centres, so bar count also reads as the strip width.
+   *
+   * The 3-6 bar L8/L11/L12 sizes and 7 Bar-L12TM / 3-4 Bar-L16TM are
+   * BOMA's own supplier-confirmed prices and are untouched. The sizes
+   * added to complete the grid carry a mass extrapolated from that family's
+   * own per-bar increment (L8TM +2.4, L11TM +4.5, L12TM +5.5, L16TM +9.6 kg
+   * per 6m sheet) and a price at that family's own average $/kg — DERIVED,
+   * not quoted, so confirm them with the supplier before relying on one. As
+   * with every catalog price these are only what a fresh install seeds; the
+   * Rates modal overrides win (see lookupRate). */
   { key: "TRENCH MESH", weightBasis: false, products: [
-    ["3 Bar-L8TM", "length", 6.8, 14.39], ["4 Bar-L8TM", "length", 9.2, 18.58], ["5 Bar-L8TM", "length", 11.6, 25.87], ["6 Bar-L8TM", "length", 13.9, 31.05],
-    ["3 Bar-L11TM", "length", 13.3, 24.43], ["4 Bar-L11TM", "length", 17.7, 33.79], ["5 Bar-L11TM", "length", 22.3, 41.3], ["6 Bar-L11TM", "length", 26.8, 50.66],
-    ["3 Bar-L12TM", "length", 16.3, 30.07], ["4 Bar-L12TM", "length", 21.8, 41.19], ["5 Bar-L12TM", "length", 27.3, 50.66], ["6 Bar-L12TM", "length", 32.8, 61.84], ["7 Bar-L12TM", "length", 38.75, 103.5],
-    ["3 Bar-L16TM", "length", 28.9, 91.08], ["4 Bar-L16TM", "length", 38.5, 92.89],
+    ["3 Bar-L8TM", "length", 6.8, 14.39], ["4 Bar-L8TM", "length", 9.2, 18.58], ["5 Bar-L8TM", "length", 11.6, 25.87], ["6 Bar-L8TM", "length", 13.9, 31.05], ["7 Bar-L8TM", "length", 16.3, 35.05], ["8 Bar-L8TM", "length", 18.7, 40.21],
+    ["3 Bar-L11TM", "length", 13.3, 24.43], ["4 Bar-L11TM", "length", 17.7, 33.79], ["5 Bar-L11TM", "length", 22.3, 41.3], ["6 Bar-L11TM", "length", 26.8, 50.66], ["7 Bar-L11TM", "length", 31.3, 58.59], ["8 Bar-L11TM", "length", 35.8, 67.02],
+    ["3 Bar-L12TM", "length", 16.3, 30.07], ["4 Bar-L12TM", "length", 21.8, 41.19], ["5 Bar-L12TM", "length", 27.3, 50.66], ["6 Bar-L12TM", "length", 32.8, 61.84], ["7 Bar-L12TM", "length", 38.75, 103.5], ["8 Bar-L12TM", "length", 44.25, 82.7],
+    ["3 Bar-L16TM", "length", 28.9, 91.08], ["4 Bar-L16TM", "length", 38.5, 92.89], ["5 Bar-L16TM", "length", 48.1, 133.86], ["6 Bar-L16TM", "length", 57.7, 160.58], ["7 Bar-L16TM", "length", 67.3, 187.29], ["8 Bar-L16TM", "length", 76.9, 214.01],
   ]},
   /* areaBasis: qty is entered in m² of coverage, not sheet count — a
    * standard AU mesh sheet is 6.0m x 2.4m = 14.4m², so cost is
@@ -206,15 +207,24 @@ export const FULL_CATALOG = [
   { key: "PROCESSED BAR", label: "PROCESSED BAR (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
     ["N10", "m", 0.632, 1925], ["N12", "m", 0.91, 1925], ["N16", "m", 1.6, 1925], ["N20", "m", 2.532, 1925], ["N24", "m", 3.639, 1925],
     ["N28", "m", 4.951, 1925], ["N32", "m", 6.468, 1925], ["N36", "m", 8.19, 1925], ["N40", "m", 10.107, 1925],
-    // Rate-based reinforcement: instead of taking off every bar, the estimator
-    // sets a kg/m³ rate on the element (the usual early-stage rule of thumb —
-    // ~90 kg/m³ for a suspended slab, ~150 for columns) and the tonnage is
-    // derived from that element's poured volume. Qty here is TONNES, priced at
-    // the same $/tonne as every other processed bar; unitWeight is null so
-    // computeRowTotal's weightBasis branch is skipped and it costs as
-    // qty * unitCost. Filled in automatically by autoReinforcementByRate —
-    // see costing.js — and dormant until an element carries a kg/m³ rate.
-    ["Reinforcement by rate", "t", null, 1925],
+  ]},
+  /* Reinforcement priced off a RATE rather than a schedule — the way a job is
+   * costed before anyone has bar-listed it ("call it 90 kg/m³"). Qty is the
+   * rate in kg per m³ of concrete; the tonnage follows from the concrete rows
+   * entered on this same element, so raising the pour raises the steel with
+   * it. Unit cost is $/tonne, the same real steel rates the schedule
+   * categories above are built from ($1925/t processed, $1825/t stock), and
+   * editable in the Rates modal like any other product.
+   *
+   * These rows are an ALTERNATIVE to bar-listing, not an addition to it — an
+   * element with both a schedule and a rate entered is buying its steel
+   * twice. Left as the estimator's call (blank costs nothing, exactly like
+   * every other row) rather than being enforced, but that's why the rate
+   * lines say so on their face. */
+  { key: "REINFORCEMENT BY RATE", label: "REINFORCEMENT BY RATE (kg per m³ of concrete — use INSTEAD OF a bar schedule)", weightBasis: false, volumeRateBasis: true, products: [
+    ["Reinforcement rate — processed bar (cut & bent)", "kg/m3", null, 1925],
+    ["Reinforcement rate — stock bar (straight lengths)", "kg/m3", null, 1825],
+    ["Reinforcement rate — mesh & bar combined", "kg/m3", null, 1925],
   ]},
   { key: "REINFORCING ACCESSORIES", weightBasis: false, products: [
     ["Delivery fee", "each", null, 300], ["Poly", "roll", null, 89.4],
@@ -224,15 +234,15 @@ export const FULL_CATALOG = [
     // rateKey-identified product a live quote could already have a quantity saved against;
     // renaming it would silently orphan that entry from the UI (see CLAUDE.md rule 6).
     ["Vapour Barrier / DPM membrane", "m2", null, 2.5],
-    ["Duct Tape", "roll", null, 4.5], ["Abelflex 100mm", "roll", null, 36],
-    ["Abelflex 150mm", "roll", null, 54], ["CP 25/40 Bar chairs", "bag", null, 16.2], ["CP 50/65 Bar chairs", "bag", null, 17.4],
-    ["CP 75/90 Bar chairs", "bag", null, 21], ["CP 85/100 Bar chairs", "bag", null, 24], ["BCPT 30 Bar chairs", "bag", null, 19.2],
-    ["BCPT 100 Bar chairs", "bag", null, 45.6], ["Base 152", "bag", null, 36.6], ["BP1.6 Tie wire", "roll", null, 5.15],
+    ["Duct Tape", "roll", null, 4.2], ["Abelflex 100mm", "roll", null, 36],
+    ["Abelflex 150mm", "roll", null, 54], ["CP 25/40 Bar chairs", "bag", null, 17.4], ["CP 50/65 Bar chairs", "bag", null, 18],
+    ["CP 75/90 Bar chairs", "bag", null, 22.2], ["CP 85/100 Bar chairs", "bag", null, 25.2], ["BCPT 30 Bar chairs", "bag", null, 20.4],
+    ["BCPT 100 Bar chairs", "bag", null, 48], ["Base 152", "bag", null, 38.4], ["BP1.6 Tie wire", "roll", null, 4.8],
   ]},
   { key: "CONCRETE", weightBasis: false, products: [
-    ["25 mpa Agilia", "m3", null, 310.5], ["32 mpa Agilia", "m3", null, 322.5], ["40 mpa Agilia", "m3", null, 334.5], ["40 mpa Agilia (walls)", "m3", null, 342.5],
-    ["15 mpa", "m3", null, 196.5], ["20 mpa", "m3", null, 207.5], ["25 mpa", "m3", null, 212.5], ["32 mpa", "m3", null, 221.5], ["40 mpa", "m3", null, 233.5],
-    ["50 mpa", "m3", null, 252.5], ["Exposed Agg", "m3", null, 400],
+    ["25 mpa Agilia", "m3", null, 318], ["32 mpa Agilia", "m3", null, 317], ["40 mpa Agilia", "m3", null, 339], ["40 mpa Agilia (walls)", "m3", null, 339],
+    ["15 mpa", "m3", null, 197], ["20 mpa", "m3", null, 199], ["25 mpa", "m3", null, 204], ["32 mpa", "m3", null, 213], ["40 mpa", "m3", null, 225],
+    ["50 mpa", "m3", null, 264.2], ["Exposed Agg", "m3", null, 400],
     // Holcim service fees. Minimum cartage is $/m³ SHORT of a 4 m³ load (see
     // MIN_CARTAGE_THRESHOLD_M3); the levy and surcharge are $/m³ delivered.
     ["Minimum cartage (load under 4 m3)", "m3", null, 80],
@@ -271,7 +281,7 @@ export const FULL_CATALOG = [
     ["Insitu Walls", "m2", null, 760], ["Stair (floor-floor)", "l/m risers", null, 682], ["Shotcrete", "m2", null, 300],
   ]},
   { key: "FORMWORK", weightBasis: false, products: [
-    ["Material", "unit", null, 400], ["Conventional", "m2", null, 60], ["Bondek", "m2", null, 125], ["Edgeform", "m", null, 8],
+    ["Material", "unit", null, 400], ["Conventional", "m2", null, 150], ["Bondek", "m2", null, 125], ["Edgeform", "m", null, 50],
     ["Beam/fold sides <400mm d", "m", null, 100], ["Beam/fold sides >400mm d", "m2", null, 250], ["Handrail", "m", null, 30],
     ["Walls", "m2", null, 250], ["Walls Curved", "m2", null, 350], ["Columns (eg 300x300)", "each", null, 1000],
     ["Oregon boards", "m2", null, 125], ["Crane Truck hire", "each", null, 1500], ["Scaffold Hire", "day", null, 175], ["Certification", "each", null, 400],
@@ -282,16 +292,50 @@ export const FULL_CATALOG = [
   // like everything else. The old generic "Insulation" row stays in OTHER
   // ACCESSORIES below because its rateKey may already carry quantities in
   // saved quotes — removing/renaming it would silently drop those from totals.
+  /* Insulation is bought by BOARD, and a board's price is set by its material,
+   * its compressive strength grade and its thickness together — so every
+   * thickness is its own priced product rather than one product with a typed
+   * thickness, which could only ever be priced wrong. The Estimates app picks
+   * a material and a thickness and emits these names VERBATIM (see
+   * INSULATION_FAMILIES there), so an import lands the area straight on the
+   * right board; if you rename a product here, rename it there too.
+   *
+   * The rigid-foam grades are quoted by compressive strength because that is
+   * what an under-slab board is specified on — 50 kPa for a domestic slab on
+   * good ground, up to 300 kPa under heavily loaded industrial slabs. */
   { key: "INSULATION", weightBasis: false, products: [
+    // Rigid foam under-slab, by compressive strength grade then thickness
+    ["Rigid foam under-slab 50 kPa — 25mm", "m2", null, 9],
+    ["Rigid foam under-slab 50 kPa — 50mm", "m2", null, 15],
+    ["Rigid foam under-slab 50 kPa — 75mm", "m2", null, 21],
+    ["Rigid foam under-slab 50 kPa — 100mm", "m2", null, 27],
+    ["Rigid foam under-slab 100 kPa — 50mm", "m2", null, 19],
+    ["Rigid foam under-slab 100 kPa — 75mm", "m2", null, 27],
+    ["Rigid foam under-slab 100 kPa — 100mm", "m2", null, 34],
+    ["Rigid foam under-slab 200 kPa — 50mm", "m2", null, 28],
+    ["Rigid foam under-slab 200 kPa — 75mm", "m2", null, 40],
+    ["Rigid foam under-slab 200 kPa — 100mm", "m2", null, 51],
+    ["Rigid foam under-slab 300 kPa — 50mm", "m2", null, 36],
+    ["Rigid foam under-slab 300 kPa — 75mm", "m2", null, 52],
+    ["Rigid foam under-slab 300 kPa — 100mm", "m2", null, 67],
     ["Kooltherm K3 Floorboard 50mm (R2.25)", "m2", null, 42],
     ["Kooltherm K3 Floorboard 60mm (R2.70)", "m2", null, 50],
+    ["Kooltherm K3 Floorboard 80mm (R3.60)", "m2", null, 66],
+    ["Kooltherm K3 Floorboard 100mm (R4.50)", "m2", null, 82],
     ["XPS rigid board 30mm (R0.88)", "m2", null, 18],
     ["XPS rigid board 50mm (R1.47)", "m2", null, 26],
+    ["XPS rigid board 75mm (R2.20)", "m2", null, 36],
+    ["XPS rigid board 100mm (R2.94)", "m2", null, 46],
     ["EPS board M-grade 50mm (R1.19)", "m2", null, 12],
     ["EPS board M-grade 75mm (R1.79)", "m2", null, 16],
+    ["EPS board M-grade 100mm (R2.38)", "m2", null, 20],
     ["Foilboard rigid panel 25mm", "m2", null, 15],
+    ["Foilboard rigid panel 30mm", "m2", null, 17],
+    ["Foilboard rigid panel 50mm", "m2", null, 26],
     ["Slab edge insulation — 30mm XPS 300mm strip", "m", null, 9],
+    ["Slab edge insulation — 50mm XPS 300mm strip", "m", null, 13],
     ["Thermal break strip 10mm", "m", null, 6],
+    ["Thermal break strip 20mm", "m", null, 9],
     ["Insulation (other — specify in description)", "m2", null, 25],
   ]},
   { key: "OTHER ACCESSORIES", weightBasis: false, products: [
@@ -303,133 +347,6 @@ export const FULL_CATALOG = [
   { key: "OTHER ALLOWANCES", weightBasis: false, products: [
     ["Inspector", "each", null, 130], ["Soil removal", "m3", null, 40], ["Bin Hire", "each", null, 600], ["Sawcutting", "day", null, 450],
     ["Concrete test", "each", null, 241.5], ["Off-site washout fee", "each", null, 400], ["Truck washout fee", "each", null, 10.5],
-  ]},
-  // ---------------------------------------------------------------------
-  // STRUCTURAL STEEL
-  //
-  // Unit weights below are the real AS/NZS designated masses (a 310UB40.4 is
-  // 40.4 kg/m by definition), so the tonnage the tool reports is the tonnage
-  // the fabricator will invoice against.
-  //
-  // The section categories are weightBasis: true — Qty is METRES, unitCost is
-  // $/tonne, and computeRowTotal turns one into the other. That is the same
-  // rule PROCESSED BAR follows and the same reason: steel is bought and
-  // fabricated by weight but measured off drawings by length. Everything else
-  // here (purlins, sheeting, connections, treatment) is priced per its own
-  // unit and stays weightBasis: false, exactly like Trench Mesh — several
-  // still carry a unitWeight purely so the UI can show informational tonnage
-  // for crane and transport planning. See CLAUDE.md -> "Costing rules" rule 2
-  // before changing any of these flags.
-  // ---------------------------------------------------------------------
-  { key: "STEEL SECTIONS — BEAMS & COLUMNS", label: "STEEL SECTIONS — BEAMS & COLUMNS (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
-    ["150UB14.0", "m", 14.0, 5200], ["200UB25.4", "m", 25.4, 5200], ["250UB31.4", "m", 31.4, 5200],
-    ["310UB40.4", "m", 40.4, 5200], ["360UB50.7", "m", 50.7, 5200], ["410UB53.7", "m", 53.7, 5200],
-    ["460UB74.6", "m", 74.6, 5200], ["530UB82.0", "m", 82.0, 5200], ["610UB101", "m", 101.0, 5200],
-    ["100UC14.8", "m", 14.8, 5200], ["150UC23.4", "m", 23.4, 5200], ["200UC46.2", "m", 46.2, 5200],
-    ["250UC72.9", "m", 72.9, 5200], ["310UC96.8", "m", 96.8, 5200],
-    ["150PFC17.7", "m", 17.7, 5350], ["200PFC22.9", "m", 22.9, 5350], ["250PFC35.5", "m", 35.5, 5350],
-    ["300PFC40.1", "m", 40.1, 5350], ["380PFC55.2", "m", 55.2, 5350],
-  ]},
-  { key: "STEEL SECTIONS — HOLLOW & ANGLE", label: "STEEL SECTIONS — HOLLOW & ANGLE (unit cost $/tonne, applied to Total Weight)", weightBasis: true, products: [
-    ["SHS 65x65x4", "m", 7.31, 5900], ["SHS 89x89x5", "m", 12.8, 5900], ["SHS 100x100x5", "m", 14.5, 5900],
-    ["SHS 125x125x6", "m", 21.9, 5900], ["SHS 150x150x6", "m", 26.6, 5900], ["SHS 200x200x9", "m", 52.9, 5900],
-    ["RHS 100x50x4", "m", 8.7, 5900], ["RHS 150x50x5", "m", 14.4, 5900], ["RHS 200x100x6", "m", 26.4, 5900],
-    ["RHS 250x150x9", "m", 52.0, 5900],
-    ["CHS 88.9x4.0", "m", 8.38, 6200], ["CHS 114.3x4.8", "m", 13.0, 6200], ["CHS 168.3x5.0", "m", 20.1, 6200],
-    ["CHS 219.1x6.4", "m", 33.6, 6200],
-    ["EA 50x50x5", "m", 3.71, 5500], ["EA 75x75x6", "m", 6.67, 5500], ["EA 100x100x8", "m", 11.8, 5500],
-    ["EA 125x125x10", "m", 18.6, 5500],
-    ["Plate / flat bar", "kg", 1.0, 5.6],
-  ]},
-  { key: "STEEL FRAMING — PORTALS, TRUSSES & BRACING", weightBasis: false, products: [
-    // Fabricated assemblies: priced per tonne of finished frame (Qty is
-    // tonnes, so no weightBasis conversion), or per item where the trade
-    // quotes them that way.
-    ["Portal frame — supply & fabricate", "t", null, 5400],
-    ["Roof truss — supply & fabricate", "t", null, 5800],
-    ["Lattice / space truss — supply & fabricate", "t", null, 6400],
-    ["Rafter / apex haunch", "each", null, 620],
-    ["Knee haunch", "each", null, 540],
-    ["Cross bracing — rod & turnbuckle", "m", 1.58, 46],
-    ["Cross bracing — angle", "m", 6.67, 58],
-    ["Fly brace", "each", null, 42],
-    ["Mezzanine framing — supply & fabricate", "t", null, 5600],
-  ]},
-  { key: "STEEL PURLINS & GIRTS", weightBasis: false, products: [
-    // Lysaght C and Z designated masses; priced per metre the way the
-    // supplier quotes them, not per tonne.
-    ["C15015 purlin/girt", "m", 2.54, 17.4], ["C15019 purlin/girt", "m", 3.14, 20.9],
-    ["C20015 purlin/girt", "m", 3.35, 21.8], ["C20019 purlin/girt", "m", 4.18, 26.4],
-    ["C25019 purlin/girt", "m", 5.13, 31.6], ["C25024 purlin/girt", "m", 6.36, 38.5],
-    ["C30024 purlin/girt", "m", 7.61, 45.2], ["C35030 purlin/girt", "m", 11.0, 63.8],
-    ["Z15015 purlin/girt", "m", 2.54, 17.9], ["Z20015 purlin/girt", "m", 3.35, 22.4],
-    ["Z25019 purlin/girt", "m", 5.13, 32.4], ["Z30024 purlin/girt", "m", 7.61, 46.1],
-    ["Purlin bridging / strut", "m", 1.72, 14.6],
-    ["Purlin cleat", "each", null, 18.5],
-    ["Purlin bolt M12 + nut", "each", null, 2.4],
-  ]},
-  { key: "ROOF & WALL CLADDING", weightBasis: false, products: [
-    ["Corrugated roof sheeting 0.42 BMT", "m2", 4.3, 29.5],
-    ["Corrugated roof sheeting 0.48 BMT", "m2", 4.9, 34.2],
-    ["Trimdek / monoclad 0.42 BMT", "m2", 4.5, 31.8],
-    ["Trimdek / monoclad 0.48 BMT", "m2", 5.1, 36.4],
-    ["Klip-lok concealed-fix 0.48 BMT", "m2", 5.2, 46.8],
-    ["Wall cladding — corrugated 0.42 BMT", "m2", 4.3, 28.6],
-    ["Insulated sandwich panel 50mm", "m2", 9.8, 118],
-    ["Anticon roof blanket R1.3", "m2", null, 12.4],
-    ["Roof safety mesh", "m2", null, 6.8],
-    ["Translucent sheeting", "m2", null, 62],
-    ["Ridge capping", "m", null, 34],
-    ["Barge / gable flashing", "m", null, 31],
-    ["Wall / apron flashing", "m", null, 28],
-    ["Box gutter", "m", null, 96],
-    ["Eaves gutter", "m", null, 44],
-    ["Downpipe", "m", null, 36],
-    ["Rainwater head / sump", "each", null, 185],
-    ["Roof sheeting screws & seals", "m2", null, 3.2],
-    ["Whirlybird / roof vent", "each", null, 240],
-  ]},
-  { key: "STEEL CONNECTIONS & JOINT DETAILS", weightBasis: false, products: [
-    // Priced how a fabricator actually quotes connections: the plate work per
-    // item, the bolts per bolt, and site welding per metre of run at the
-    // specified leg size.
-    ["Base plate — light (up to 12mm)", "each", 14, 165],
-    ["Base plate — medium (16-20mm)", "each", 32, 285],
-    ["Base plate — heavy (25mm+)", "each", 64, 495],
-    ["Cap plate", "each", 11, 140],
-    ["Web side plate / shear cleat", "each", 6, 96],
-    ["Flexible end plate", "each", 9, 128],
-    ["Bolted moment end plate", "each", 38, 420],
-    ["Splice plate set — column", "set", 46, 560],
-    ["Splice plate set — beam", "set", 34, 445],
-    ["Web / load-bearing stiffener", "each", 5, 88],
-    ["Gusset plate — bracing", "each", 12, 155],
-    ["Seating cleat / angle cleat", "each", 4, 72],
-    ["Holding-down bolt cage (4 bolt)", "each", 18, 320],
-    ["HD bolt M20 cast-in", "each", 1.6, 19.5],
-    ["HD bolt M24 cast-in", "each", 2.6, 29],
-    ["Chemical anchor M16", "each", null, 16.5],
-    ["Chemical anchor M20", "each", null, 24],
-    ["Structural bolt M16 8.8/S", "each", null, 3.4],
-    ["Structural bolt M20 8.8/S", "each", null, 4.6],
-    ["Structural bolt M24 8.8/TB", "each", null, 8.9],
-    ["Structural bolt M30 8.8/TB", "each", null, 17.5],
-    ["Site weld — 6mm fillet", "m", null, 46],
-    ["Site weld — 8mm fillet", "m", null, 64],
-    ["Site weld — 10mm fillet", "m", null, 88],
-    ["Site weld — full penetration butt", "m", null, 165],
-    ["Shear stud 19mm — welded", "each", null, 4.8],
-    ["Base plate grout — cementitious", "each", null, 58],
-    ["Shim pack", "each", null, 12],
-    ["Weld inspection / NDT", "each", null, 145],
-  ]},
-  { key: "STEEL PROTECTIVE TREATMENT", weightBasis: false, products: [
-    ["Hot dip galvanising", "t", null, 1150],
-    ["Shop primer", "m2", null, 14.5],
-    ["Two-pack epoxy — shop applied", "m2", null, 38],
-    ["Intumescent fire rating -/60/60", "m2", null, 68],
-    ["Intumescent fire rating -/120/120", "m2", null, 112],
-    ["Site touch-up & make good", "each", null, 26],
   ]},
   { key: "SUB CONTRACTORS / TEMPORARY WORKS", weightBasis: false, products: [
     ["Excavation (subcontract)", "quote", null, null], ["Formwork (subcontract)", "quote", null, null], ["Steel supply", "quote", null, null], ["Steel fix", "quote", null, null],
@@ -446,7 +363,7 @@ export const FULL_CATALOG = [
 }));
 
 /* ---------- Element types ----------
- * Every concrete/structural element BOMA ESTIMATES might reasonably meet across
+ * Every concrete/structural element BOMA might reasonably meet across
  * ANY building or civil project — not curated per job. `category` is the
  * broad, foldable grouping (Foundations, Suspended Structure, ...) shown
  * on the Add-Element dropdown; `section` is the finer sub-group used by
@@ -502,31 +419,6 @@ export const ELEMENT_TYPES = [
   // Its own labour template (stepped riser/tread formwork, not a flat soffit — see
   // LABOUR_TEMPLATES.stairs) and its own section, since a staircase isn't really a
   // suspended slab even though it's typically propped/formed the same way.
-  // ---- STRUCTURAL STEEL: the superstructure that lands on the concrete,
-  //      so it sits between the suspended structure and the external works
-  //      in the ground-up order the dropdown and Quote Summary read in. ----
-  { id: "steel_column", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Column", labour: "steel" },
-  { id: "steel_beam", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Beam", labour: "steel" },
-  { id: "portal_frame", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Portal Frame", labour: "steel" },
-  { id: "roof_truss", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Roof Truss", labour: "steel" },
-  { id: "steel_bracing", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Bracing - Roof & Wall", labour: "steel" },
-  { id: "mezzanine_floor", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Mezzanine Floor Framing", labour: "steel" },
-  { id: "composite_floor_deck", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Composite Floor Deck", labour: "steel" },
-  { id: "steel_stair", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Stair & Landing", labour: "steel" },
-  { id: "steel_balustrade", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Handrail & Balustrade", labour: "steel" },
-  { id: "steel_lintel", category: "STRUCTURAL STEEL", section: "STEEL FRAMING", name: "Steel Lintel", labour: "steel" },
-  { id: "roof_purlins", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Roof Purlins", labour: "steel" },
-  { id: "wall_girts", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Wall Girts", labour: "steel" },
-  { id: "roof_sheeting", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Roof Sheeting", labour: "steel" },
-  { id: "wall_cladding", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Wall Cladding", labour: "steel" },
-  { id: "roof_flashings", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Flashings & Cappings", labour: "steel" },
-  { id: "roof_drainage", category: "STRUCTURAL STEEL", section: "STEEL ROOFING & CLADDING", name: "Gutters & Downpipes", labour: "steel" },
-  { id: "steel_base_connection", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Base Plate & Holding-Down Set", labour: "steel" },
-  { id: "steel_moment_connection", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Moment Connection", labour: "steel" },
-  { id: "steel_shear_connection", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Shear / Cleat Connection", labour: "steel" },
-  { id: "steel_splice", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Column / Beam Splice", labour: "steel" },
-  { id: "steel_protective", category: "STRUCTURAL STEEL", section: "STEEL CONNECTIONS", name: "Galvanising & Fire Protection", labour: "steel" },
-
   { id: "staircase", category: "SUSPENDED STRUCTURE", section: "STAIRS", name: "Staircase", labour: "stairs" },
 
   // External & landscape concrete — outside the building envelope.
@@ -553,7 +445,7 @@ export const CATEGORY_ORDER = [...new Set(ELEMENT_TYPES.map((t) => t.category))]
 export const SECTION_ORDER = [...new Set(ELEMENT_TYPES.map((t) => t.section))];
 
 /* ---------- Quote pipeline status ----------
- * A project's own stage through the estimating/quoting pipeline —
+ * A project's own stage through BOMA's estimating/quoting pipeline —
  * distinct from Cost Planner's post-award project/tender status (Active/On
  * Hold/Complete, Tendering/Submitted/Won/Lost in cost-planner.html), which
  * tracks a job already won. This tracks getting there. Order below is the
@@ -594,5 +486,14 @@ export const PLANNER_PRIORITY_STYLES = {
  * CLAUDE.md "the 15-vs-0.15 gotcha" before touching this.
  */
 export const MARGIN_STEPS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40];
-export const DEFAULT_MARGIN = 0.30;
+/* BOMA's agreed house margin. This is the rung the Quote Summary
+ * highlights, the one the Dashboard's "Total sell" column and $/m² are struck
+ * at, and the one the External and Tender quotes allocate their line prices
+ * from — so changing it moves every headline sell figure in the app.
+ * Margin is on the SELL price, not a markup on cost: 25% margin is cost
+ * ÷ 0.75, which is a 33.33% markup (see computeMarginLadder). A saved
+ * Settings value ("Default margin %") overrides this per install — see
+ * getDefaultMargin() — so an install that has one keeps it until it is
+ * changed there too. */
+export const DEFAULT_MARGIN = 0.25;
 export const GST_RATE = 0.10; // Australian GST — change here if this is ever used outside AU

@@ -108,6 +108,7 @@ export default function QuoteSummary({
           <thead>
             <tr className="bg-neutral-50 text-neutral-500 text-[10px] uppercase tracking-wide">
               <th className="text-left px-3 py-1.5 font-medium">Margin</th>
+              <th className="text-right px-2 py-1.5 font-medium" title="What you add to COST to land the margin on the left. They are not the same number — a 25% margin needs 33.3% on cost.">= Markup on cost</th>
               <th className="text-right px-2 py-1.5 font-medium">Sell (ex GST)</th>
               <th className="text-right px-2 py-1.5 font-medium">Sell (inc GST)</th>
               <th className="text-right px-3 py-1.5 font-medium">$/m² GFA</th>
@@ -119,6 +120,9 @@ export default function QuoteSummary({
               return (
                 <tr key={row.margin} className={`border-t border-neutral-100 ${isDefault ? "bg-emerald-50" : ""}`}>
                   <td className="px-3 py-1 font-medium text-neutral-700">{Math.round(row.margin * 100)}%</td>
+                  <td className="px-2 py-1 text-right font-mono tabular-nums text-neutral-500">
+                    {(row.markupOnCost * 100).toFixed(1)}%
+                  </td>
                   <td className="px-2 py-1 text-right font-mono tabular-nums">{money(row.sellExGst)}</td>
                   <td className="px-2 py-1 text-right font-mono tabular-nums">{money(row.sellIncGst)}</td>
                   <td className="px-3 py-1 text-right font-mono tabular-nums">

@@ -4,7 +4,7 @@ import { NumInput } from "./atoms.jsx";
 
 /**
  * Renders EVERY product in one catalog category as a line item, applicable
- * or not — this is the "roll everything down" behaviour the estimator asked for.
+ * or not — this is the "roll everything down" behaviour Grady asked for.
  * Nothing here should filter products by element type; if a category
  * shouldn't apply to a given job, the estimator just leaves those rows
  * blank (blank quantities cost nothing — see computeElementCost).

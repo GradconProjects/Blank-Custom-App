@@ -2,7 +2,7 @@ import {
   CATEGORY_ORDER, SECTION_ORDER, FULL_CATALOG, RESOURCE_COLS,
 } from "../data/catalog.js";
 import {
-  computeElementCost, computeGrandTotal, computeMarginLadder, rateKey, lookupRate, computeRowTotal, money, money2, getDefaultMargin, getMarginSteps, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy, autoReinforcementByRate,
+  computeElementCost, computeGrandTotal, computeMarginLadder, rateKey, lookupRate, computeRowTotal, rowContext, money, money2, getDefaultMargin, getMarginSteps, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy,
 } from "../lib/costing.js";
 import { BOMA_LOGO_DATA_URI } from "../lib/logo.js";
 
@@ -86,7 +86,7 @@ function ReportContent({ quote, items, rates, categoryOrder, sectionOrder }) {
   return (
     <>
       <div className="border-b-2 border-black pb-2 mb-3">
-        <img src={BOMA_LOGO_DATA_URI} alt="BOMA ESTIMATES" className="h-8 mb-1.5" />
+        <img src={BOMA_LOGO_DATA_URI} alt="BOMA ESTIMATES" className="h-16 mb-1.5" />
         <div className="text-xl font-bold">{quote.projectName || "Untitled project"}</div>
         {quote.clientName && <div className="text-neutral-700">Client: {quote.clientName}</div>}
         <div className="text-neutral-600">Date: {quote.projectDate}</div>
@@ -121,6 +121,20 @@ function ReportContent({ quote, items, rates, categoryOrder, sectionOrder }) {
         <span>{money2(grandTotal)}</span>
       </div>
 
+      {/* What the estimate assumed, recorded under Project Geometry. Printed
+          straight after the total so the figure and its qualifications are
+          never separated — a price without them is not defensible weeks on. */}
+      {(quote.assumptions || []).some((a) => (a.text || "").trim()) && (
+        <div className="mt-3 break-inside-avoid">
+          <div className="text-xs font-bold uppercase tracking-wide bg-blue-900 text-white px-2 py-1">Assumptions</div>
+          <ol className="px-4 py-1 list-decimal space-y-0.5">
+            {(quote.assumptions || [])
+              .filter((a) => (a.text || "").trim())
+              .map((a) => <li key={a.id}>{a.text}</li>)}
+          </ol>
+        </div>
+      )}
+
       <div className="mt-3 break-inside-avoid">
         <div className="text-xs font-bold uppercase tracking-wide bg-blue-900 text-white px-2 py-1">GFA &amp; On-Costs</div>
         <div className="px-2 py-1 flex justify-between">
@@ -143,6 +157,7 @@ function ReportContent({ quote, items, rates, categoryOrder, sectionOrder }) {
           <thead>
             <tr className="text-left bg-blue-50 text-blue-900">
               <th className="py-1 px-1">Margin</th>
+              <th className="py-1 px-1 text-right">= Markup on cost</th>
               <th className="py-1 px-1 text-right">Sell (ex GST)</th>
               <th className="py-1 px-1 text-right">Sell (inc GST)</th>
               <th className="py-1 px-1 text-right">$/m² GFA</th>
@@ -155,6 +170,7 @@ function ReportContent({ quote, items, rates, categoryOrder, sectionOrder }) {
                 className={`border-b border-neutral-200 ${Math.abs(row.margin - getDefaultMargin()) < 1e-9 ? "font-bold" : ""}`}
               >
                 <td className="py-0.5">{Math.round(row.margin * 100)}%</td>
+                <td className="py-0.5 text-right">{(row.markupOnCost * 100).toFixed(1)}%</td>
                 <td className="py-0.5 text-right">{money(row.sellExGst)}</td>
                 <td className="py-0.5 text-right">{money(row.sellIncGst)}</td>
                 <td className="py-0.5 text-right">{row.perM2 > 0 ? money2(row.perM2) : "—"}</td>
@@ -171,13 +187,14 @@ function ElementReportBlock({ item, rates }) {
   const cost = computeElementCost(item, rates);
 
   const materialLines = [];
+  const ctx = rowContext(item);
   FULL_CATALOG.forEach((cat) => {
     cat.products.forEach((p) => {
       const qKey = rateKey(cat.key, p.name, p.unit);
       const qty = Number(item.qtys[qKey]) || 0;
       if (qty > 0) {
         const rate = lookupRate(rates, qKey, { unitCost: p.unitCost ?? 0, unitWeight: p.unitWeight, sheetArea: p.sheetArea, barLength: p.barLength });
-        const rowTotal = computeRowTotal(cat, rate, qty);
+        const rowTotal = computeRowTotal(cat, rate, qty, ctx);
         materialLines.push({ key: qKey, label: `${p.name} (${cat.key})`, qty, unit: p.unit, total: rowTotal });
       }
     });
@@ -196,18 +213,6 @@ function ElementReportBlock({ item, rates }) {
   const surcharge = autoConcreteSurcharge(item, rates);
   if (surcharge) {
     materialLines.push({ key: `${surcharge.key}::auto`, label: "Production & transport surcharge (CONCRETE — auto, per m³)", qty: surcharge.qty, unit: "m3", total: surcharge.total });
-  }
-  // Reinforcement derived from a kg/m³ rate is real money in the totals too,
-  // and the client should see what it was derived FROM, not just a tonnage.
-  const reoRate = autoReinforcementByRate(item, rates);
-  if (reoRate) {
-    materialLines.push({
-      key: `${reoRate.key}::auto`,
-      label: `Reinforcement by rate (PROCESSED BAR — auto, ${reoRate.ratePerM3} kg/m³ × ${reoRate.volume.toFixed(2)} m³)`,
-      qty: Number(reoRate.tonnes.toFixed(3)),
-      unit: "t",
-      total: reoRate.total,
-    });
   }
 
   const labourLines = RESOURCE_COLS.filter((res) => cost.resourceTotals[res.key] > 0).map((res) => ({

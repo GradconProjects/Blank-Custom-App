@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { ChevronDown, ChevronRight, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Wand2, Plus, Trash2 } from "lucide-react";
 import { geometryForLabel } from "../lib/estimateImport.js";
 import { computeProjectUnitRates, money2 } from "../lib/costing.js";
 
@@ -18,7 +18,12 @@ import { computeProjectUnitRates, money2 } from "../lib/costing.js";
  * That name match is also what keeps a renamed or hand-added card working.
  * Everything stays typeable: the estimator's own figure always wins.
  */
-export default function ProjectGeometryPanel({ items, rates, estimateGeometry, onChangeItem }) {
+/* Assumptions are keyed so editing one never re-keys the others mid-type
+ * (an index key makes React reuse the wrong textarea when one is deleted). */
+let assumptionSeq = 0;
+const newAssumptionId = () => `a${Date.now().toString(36)}${(assumptionSeq++).toString(36)}`;
+
+export default function ProjectGeometryPanel({ items, rates, estimateGeometry, onChangeItem, assumptions, onChangeAssumptions }) {
   // Elements still waiting on a length or an area — until every element has
   // one the table opens itself, so the figures are asked for rather than
   // hidden behind a fold nobody thinks to open.
@@ -74,6 +79,10 @@ export default function ProjectGeometryPanel({ items, rates, estimateGeometry, o
   };
 
   const set = (item, field, value) => onChangeItem(item.id, { ...item, [field]: value });
+
+  // The project's recorded assumptions. Legacy quotes have none; an absent
+  // list reads as empty rather than crashing the panel.
+  const list = Array.isArray(assumptions) ? assumptions : [];
 
   if (items.length === 0) return null;
 
@@ -165,6 +174,58 @@ export default function ProjectGeometryPanel({ items, rates, estimateGeometry, o
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* The assumptions behind the figures above. An estimate is only
+              defensible alongside what was assumed to arrive at it — a spoil
+              rate taken off an unmarked drawing, a slab thickness read from a
+              typical detail, an access restriction priced in. They live with
+              the project, print on its quote report, and are the first thing
+              to check when a number is queried weeks later. */}
+          <div className="rounded-lg border border-neutral-200 bg-white p-3 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[13px] font-semibold text-neutral-800">Assumptions</div>
+                <p className="text-xs text-neutral-500 max-w-3xl">
+                  What this estimate assumes — anything read off a drawing rather than dimensioned, taken on the
+                  builder&apos;s word, or allowed for without a documented scope. These print on the quote report.
+                </p>
+              </div>
+              <button
+                onClick={() => onChangeAssumptions([...list, { id: newAssumptionId(), text: "" }])}
+                className="flex-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-900 hover:bg-amber-800 text-white text-[11px] font-semibold"
+              >
+                <Plus size={13} /> Add assumption
+              </button>
+            </div>
+
+            {list.length === 0 ? (
+              <p className="text-xs text-neutral-400 italic">
+                None recorded. Add one for every figure a reader could not derive from the drawings alone.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {list.map((a, i) => (
+                  <li key={a.id} className="flex items-start gap-2">
+                    <span className="font-mono tabular-nums text-[11px] text-neutral-400 pt-2 w-5 text-right flex-none">{i + 1}.</span>
+                    <textarea
+                      value={a.text}
+                      onChange={(e) => onChangeAssumptions(list.map((x) => (x.id === a.id ? { ...x, text: e.target.value } : x)))}
+                      rows={1}
+                      placeholder="e.g. Slab thickness scaled from Section A — not dimensioned on the structural set"
+                      className="flex-1 border border-neutral-200 rounded px-2 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-orange-400"
+                    />
+                    <button
+                      onClick={() => onChangeAssumptions(list.filter((x) => x.id !== a.id))}
+                      title="Remove this assumption"
+                      className="flex-none p-1.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}

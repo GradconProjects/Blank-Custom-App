@@ -7,7 +7,7 @@
  * schemas that were never designed to line up 1:1: Estimates computes
  * generic quantities (a bar diameter + length, a concrete grade + volume,
  * an area of formwork) while the Quotes catalog prices specific named
- * BOMA ESTIMATES SKUs. Where the mapping is unambiguous we prefill the quantity;
+ * BOMA SKUs. Where the mapping is unambiguous we prefill the quantity;
  * everywhere it isn't (multiple products could apply, or nothing in the
  * catalog corresponds at all) we DON'T guess a number into the quote — we
  * add a flag describing exactly what was found so the estimator enters it
@@ -34,6 +34,11 @@ export const ESTIMATE_TYPE_MAP = {
   "Pad Footing": "pile_caps_pad",
   "Stump Footing Pad": "stump_footings",
   "Bored Pier": "piles_bored",
+  // Estimates' generic "Piles" type (driven/screw/CFA, same circular
+  // calculator as Bored Pier) lands on the same Quotes bored-pile element —
+  // it's the only piling element Quotes prices by schedule, and Screw Piles
+  // is a subcontract line rather than a takeoff target.
+  "Piles": "piles_bored",
   "Pile Cap": "pile_caps_pad",
   "Ground Beam": null,
   "Column Base Plate / Grout Pad": "column_base_plate",

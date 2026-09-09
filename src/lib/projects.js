@@ -9,6 +9,7 @@
 import { uid, rateKey } from "./costing.js";
 import { supabase, supabaseEnabled } from "./supabaseClient.js";
 import { FULL_CATALOG } from "../data/catalog.js";
+import { readMirror, writeMirror, clearMirror } from "./localMirror.js";
 
 const TABLE = "estimator_kv";
 
@@ -17,6 +18,77 @@ export const LEGACY_QUOTE_KEY = "boma-quote";
 export const PUBLISHED_QUOTES_KEY = "boma-published-quotes";
 
 export const quoteStorageKey = (id) => `boma-quote-${id}`;
+
+/* ---- Dashboard summary mirror -------------------------------------------
+ * The dashboard needs every project's quote to draw its rows (name, status,
+ * totals), which used to mean a blank list until a SECOND round trip — after
+ * the index — came back. Two things fix that, both Supabase-only:
+ *
+ *   1. readQuotesCached(): a localStorage mirror of each quote as the dashboard
+ *      needs it, painted synchronously on first render. Markup drawings are
+ *      stripped of their image data so the mirror stays small enough to keep
+ *      (see MAX_MIRROR_BYTES) — which is exactly why this mirror is ONLY for
+ *      summaries and never feeds the project editor: a save made from a copy
+ *      without the drawings would delete them.
+ *   2. a boot-time prefetch of every quote row, fired the moment this module
+ *      evaluates (before React mounts), in parallel with the index fetch that
+ *      useStoredState makes. The first readQuotes() call consumes it, so the
+ *      dashboard's own fetch costs no extra round trip. Consumed exactly once:
+ *      every later call — a refresh, another view, the Estimates import — goes
+ *      to the database as before, so nothing can ever be served stale.
+ */
+const summaryMirrorKey = (storageKey) => `summary:${storageKey}`;
+const stripForSummary = (quote) => {
+  if (!quote || typeof quote !== "object" || !Array.isArray(quote.items)) return quote;
+  return {
+    ...quote,
+    items: quote.items.map((it) =>
+      it && Array.isArray(it.markups)
+        ? { ...it, markups: it.markups.map((m) => (m && typeof m === "object" ? { ...m, dataURL: undefined } : m)) }
+        : it
+    ),
+  };
+};
+function mirrorSummaries(map) {
+  Object.keys(map).forEach((k) => writeMirror(summaryMirrorKey(k), stripForSummary(map[k]), null));
+}
+
+/** Keeps a project's summary mirror current as it is EDITED — the editor
+ * saves through useStoredState, which knows nothing about summaries, so
+ * without this a rename made just before leaving would show its old name
+ * on the next dashboard visit for the length of one round trip. */
+export function mirrorQuoteSummary(storageKey, quote) {
+  if (!supabaseEnabled || !storageKey || !quote) return;
+  writeMirror(summaryMirrorKey(storageKey), stripForSummary(quote), null);
+}
+
+/** Synchronous: `{ storageKey: quote-without-drawing-data }` for every key
+ * that has a mirror. Only for summary rows; empty on a localStorage install
+ * (there the quotes are already local and instant). */
+export function readQuotesCached(storageKeys) {
+  const map = {};
+  if (!supabaseEnabled) return map;
+  storageKeys.forEach((k) => {
+    const hit = readMirror(summaryMirrorKey(k));
+    if (hit && hit.value) map[k] = hit.value;
+  });
+  return map;
+}
+
+let quotesPrefetch = null;
+if (supabaseEnabled) {
+  quotesPrefetch = (async () => {
+    try {
+      const { data, error } = await supabase.from(TABLE).select("key, value").like("key", "boma-quote-%");
+      if (error || !data) return null;
+      const map = {};
+      data.forEach((row) => { map[row.key] = row.value; });
+      return map;
+    } catch {
+      return null;
+    }
+  })();
+}
 
 export function newProjectEntry() {
   const id = uid();
@@ -49,10 +121,25 @@ export async function readQuote(storageKey) {
 export async function readQuotes(storageKeys) {
   if (storageKeys.length === 0) return {};
   if (supabaseEnabled) {
+    // The boot prefetch is used for the FIRST call only, and only when it
+    // answers for every key asked for; anything else falls through to the
+    // ordinary query exactly as before.
+    if (quotesPrefetch) {
+      const pending = quotesPrefetch;
+      quotesPrefetch = null;
+      const pre = await pending;
+      if (pre && storageKeys.every((k) => k in pre)) {
+        const map = {};
+        storageKeys.forEach((k) => { map[k] = pre[k]; });
+        mirrorSummaries(map);
+        return map;
+      }
+    }
     try {
       const { data, error } = await supabase.from(TABLE).select("key, value").in("key", storageKeys);
       const map = {};
       if (!error && data) data.forEach((row) => { map[row.key] = row.value; });
+      if (!error && data) mirrorSummaries(map);
       return map;
     } catch {
       return {};
@@ -79,6 +166,7 @@ export async function writeQuote(storageKey, quote) {
   if (supabaseEnabled) {
     try {
       await supabase.from(TABLE).upsert({ key: storageKey, value: quote, updated_at: new Date().toISOString() });
+      writeMirror(summaryMirrorKey(storageKey), stripForSummary(quote), null);
     } catch {
       /* best-effort */
     }
@@ -93,6 +181,7 @@ export async function writeQuote(storageKey, quote) {
 
 export async function deleteQuote(storageKey) {
   if (supabaseEnabled) {
+    clearMirror(summaryMirrorKey(storageKey));
     try {
       await supabase.from(TABLE).delete().eq("key", storageKey);
     } catch {
@@ -113,7 +202,7 @@ export async function deleteQuote(storageKey) {
  * already publishes to (see estimates-app.html's writeEstimateExport and
  * cost-planner.html's importPublishedEstimates). Cost Planner matches each line
  * back to its own BOQ catalog by category+product name (the two apps share the
- * same real BOMA ESTIMATES catalog, so this matches cleanly for almost everything —
+ * same real BOMA catalog, so this matches cleanly for almost everything —
  * reinforcement, concrete by grade, formwork, rate items, accessories) and drops
  * a new custom BOQ row for anything it can't match, so nothing entered in Quotes
  * is silently missing from Cost Planner's BOQ. Matched back to the same Cost

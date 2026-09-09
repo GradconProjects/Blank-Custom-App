@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Copy, Trash2, Paperclip, X, RotateCw, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { FULL_CATALOG, LABOUR_TEMPLATES } from "../data/catalog.js";
-import { uid, money2, computeElementCost, computeElementUnitRates, autoLabourQtys, labourQuantities, autoReinforcementByRate } from "../lib/costing.js";
+import { uid, money2, computeElementCost, computeElementUnitRates, autoLabourQtys, labourQuantities } from "../lib/costing.js";
 import { pdfToJpegPages } from "../lib/pdfToImages.js";
 import CategoryBlock from "./CategoryBlock.jsx";
 import LabourMatrix from "./LabourMatrix.jsx";
@@ -12,26 +12,18 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
   // expanded (it's still collapsible too, just defaults open).
   const [openCats, setOpenCats] = useState({});
   // Everything starts ROLLED UP: the labour matrix and the whole card, same
-  // as every material category. The Settings toggle can restore open-by-
-  // default cards by being explicitly set to false.
+  // as every material category. Unconditionally — this used to honour a
+  // `quotesCardsCollapsed` preference, but that toggle shipped defaulting
+  // to OFF, so anyone who saved Settings back then carried an explicit
+  // `false` forever and every element opened flat on every project no
+  // matter what the default was later changed to. There is no opt-out now.
   const [labourOpen, setLabourOpen] = useState(false);
-  const [cardOpen, setCardOpen] = useState(() => {
-    try {
-      const p = JSON.parse(localStorage.getItem("boma-preferences")) || {};
-      return p.quotesCardsCollapsed === false;
-    } catch {
-      return false;
-    }
-  });
+  const [cardOpen, setCardOpen] = useState(false);
 
   const cost = useMemo(() => computeElementCost(item, rates), [item, rates]);
   // Benchmark rates for the panel beside this row — $/lm and $/m² over the
   // geometry measured in Estimates, $/m³ over this element's own concrete.
   const unitRates = useMemo(() => computeElementUnitRates(item, rates), [item, rates]);
-  // Reinforcement derived from a kg/m³ rate rather than a bar takeoff. null
-  // whenever the element has no rate, no concrete, or a tonnage typed
-  // straight onto the row — see autoReinforcementByRate.
-  const reoByRate = useMemo(() => autoReinforcementByRate(item, rates), [item, rates]);
 
   const patch = (fn) => onChange(fn(item));
 
@@ -132,7 +124,6 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
     patch((it) => ({ ...it, additional: it.additional.map((a) => (a.id === id ? { ...a, ...fields } : a)) }));
 
   const setDescription = (v) => patch((it) => ({ ...it, description: v }));
-  const setReoRate = (v) => patch((it) => ({ ...it, reoRatePerM3: v === "" ? "" : Number(v) }));
   // The description box is for SPECIALIST elements only — hidden by default
   // so ordinary line items stay compact. It appears when the estimator opens
   // it via the small "+ specification" toggle, and stays visible whenever the
@@ -213,7 +204,9 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
       }));
       patch((it) => ({ ...it, markups: (it.markups || []).flatMap((x) => (x.id === id ? imgs : [x])) }));
     } catch (err) {
-      alert(`Couldn't render "${m.name}" to images — the PDF may be corrupt or password-protected.`);
+      alert(err && err.code === "PDF_ENGINE_UNAVAILABLE"
+        ? "Couldn't load the PDF renderer — check the connection and try again. If it keeps failing, reload the portal to pick up the latest build."
+        : `Couldn't render "${m.name}" to images — the PDF may be corrupt or password-protected.`);
     } finally {
       setConvertingPdf(false);
     }
@@ -224,11 +217,14 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
   const rotateMarkup = (id) =>
     patch((it) => ({ ...it, markups: (it.markups || []).map((m) => (m.id === id ? { ...m, rotation: ((m.rotation || 0) + 90) % 360 } : m)) }));
   const markups = item.markups || [];
-  // The drawings themselves must be easily seen, not hidden behind a click:
-  // when an element HAS markups, the section opens with the card and every
-  // drawing renders full-size inline. Only an element with no markups keeps
-  // the section as a slim collapsed header.
-  const [markupsOpen, setMarkupsOpen] = useState(() => (item.markups || []).length > 0);
+  // Rolled up like everything else on the card, and — like every other
+  // section here (openCats, labourOpen, AdditionalItems) — the open/closed
+  // state is LOCAL, not written into the item. It used to persist
+  // `markupsCollapsed`, which meant an element sprang open on every future
+  // load just because a drawing had once been uploaded to it; a project with
+  // a markup on every element then ran for pages. Opening is a per-session
+  // act now: the blue bar carries the count so nothing is hidden.
+  const [markupsOpen, setMarkupsOpen] = useState(false);
   const [viewerId, setViewerId] = useState(null); // markup id open in the zoom lightbox
   const viewerMarkup = markups.find((m) => m.id === viewerId) || null;
 
@@ -279,45 +275,6 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
             <span>Custom items: <b className="font-mono text-neutral-700">{money2(cost.additionalTotal)}</b></span>
           </div>
 
-          {/* Reinforcement by rate — the early-stage alternative to a bar
-              takeoff: set kg of steel per m³ and the tonnage falls out of the
-              concrete already entered. Blank means off, so this costs nothing
-              until someone deliberately uses it. */}
-          <div className="rounded-lg border border-neutral-200 bg-white p-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500 font-semibold">
-                Reinforcement by rate
-              </div>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min="0"
-                  step="5"
-                  value={item.reoRatePerM3 ?? ""}
-                  onChange={(e) => setReoRate(e.target.value)}
-                  placeholder="—"
-                  className="w-20 text-[13px] font-mono tabular-nums text-right border border-neutral-200 rounded-md px-2 py-1 focus:outline-none focus:border-orange-400"
-                  title="Kilograms of reinforcement per cubic metre of concrete. Leave blank to take off bars individually instead."
-                />
-                <span className="text-xs text-neutral-500">kg/m³</span>
-              </div>
-              {reoByRate ? (
-                <div className="text-xs text-neutral-500">
-                  {reoByRate.volume.toFixed(2)} m³ × {reoByRate.ratePerM3} kg/m³ ={" "}
-                  <b className="font-mono tabular-nums text-neutral-700">{reoByRate.tonnes.toFixed(3)} t</b>{" "}
-                  <span className="font-mono tabular-nums text-orange-600 font-semibold">{money2(reoByRate.total)}</span>
-                  <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">auto</span>
-                </div>
-              ) : (
-                <div className="text-xs text-neutral-400">
-                  {Number(item.reoRatePerM3) > 0
-                    ? "No concrete entered yet — or a tonnage is typed on the Reinforcement by rate row, which takes it manual."
-                    : "Optional. Set a kg/m³ rate to derive the tonnage from this element's concrete instead of taking off bars."}
-                </div>
-              )}
-            </div>
-          </div>
-
           {showDesc ? (
             <div className="rounded-lg border border-neutral-200 bg-white p-3">
               <div className="flex items-center justify-between mb-1">
@@ -351,15 +308,21 @@ export default function ElementCard({ item, rates, onChange, onRemove, onDuplica
           )}
 
           <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2">
+            {/* The roll-up is the control people reach for most on an element
+                that carries drawings, so it is a full blue bar rather than a
+                10px grey caption — big enough to hit without aiming, and
+                unmistakably the thing that opens and closes the section. */}
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-blue-950 text-white">
               <button
                 onClick={() => setMarkupsOpen(!markupsOpen)}
-                className="text-[10px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center gap-1.5"
+                aria-expanded={markupsOpen}
+                title={markupsOpen ? "Roll up the markup drawings" : "Roll down the markup drawings"}
+                className="flex-1 min-w-0 text-left text-[15px] uppercase tracking-widest font-bold flex items-center gap-3 text-white hover:text-orange-300 transition-colors"
               >
-                {markupsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <Paperclip size={12} /> Markup drawings {markups.length > 0 && <span className="text-orange-600">({markups.length})</span>}
+                {markupsOpen ? <ChevronDown size={26} /> : <ChevronRight size={26} />}
+                <Paperclip size={22} /> Markup drawings {markups.length > 0 && <span className="text-orange-300">({markups.length})</span>}
               </button>
-              <label className="cursor-pointer px-2.5 py-1 rounded-md bg-blue-950 hover:bg-blue-900 text-white text-[11px] font-semibold">
+              <label className="flex-none cursor-pointer px-2.5 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[11px] font-semibold">
                 Upload PDF / PNG / JPG
                 <input
                   ref={fileInputRef}

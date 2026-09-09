@@ -1,6 +1,6 @@
 # BOMA ESTIMATES — instructions for Claude Code
 
-This is BOMA ESTIMATES, a concrete-subcontract estimating tool: pick a structural
+This is BOMA ESTIMATES' estimating tool: pick a structural
 element from a dropdown, the entire material/reo/formwork/labour catalog
 for that element rolls out below it, fill in quantities, and everything
 rolls up live into a quote (element → section → grand total → margin
@@ -53,7 +53,7 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
 
 1. **Every product in `FULL_CATALOG` is shown on every element type, always.**
    There is no per-element filtering of which categories or products
-   apply — that was a deliberate decision (an estimator wants to see the whole
+   apply — that was a deliberate decision (Grady wants to see the whole
    catalog and decide per job what applies, not have the tool guess).
    A blank quantity costs $0 and contributes nothing — that's what makes
    showing the whole catalog on every tab harmless. **Do not add
@@ -97,7 +97,7 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
 4. **The margin ladder divides, it doesn't multiply.** Sell price =
    `subtotal / (1 - margin)`, not `subtotal * (1 + margin)`. A 30% margin
    on cost is not the same number as a 30% markup — this app implements
-   margin-on-sell-price (the construction-industry convention BOMA ESTIMATES
+   margin-on-sell-price (the construction-industry convention BOMA
    uses), matching the original workbook. See
    `computeMarginLadder` in `costing.js`.
 
@@ -123,12 +123,15 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
 
 7. **Concrete delivery fees are auto-applied, per the Holcim schedule.**
    Three CONCRETE rows cost themselves from the element's poured volume
-   rather than being typed: **Minimum cartage** (a delivered load under
-   `MIN_CARTAGE_THRESHOLD_M3` = 4 m³ is charged $80 per m³ SHORT of 4 —
-   *per truck*, so the volume is split into `TRUCK_LOAD_M3` (8 m³) loads
-   and only the last, part load can be short), the **production &
-   transport surcharge** and the **environment levy** (both flat $/m³ on
-   every delivered m³). Typing a Qty on any of those rows takes that row
+   rather than being typed: **Minimum cartage** (the poured volume is
+   divided by `MIN_CARTAGE_THRESHOLD_M3` = 4 m³ into whole loads, and the
+   REMAINDER of that division — a part load — is charged $80 per m³ it is
+   short of 4; a volume that divides evenly leaves no remainder and costs
+   nothing, so 11 m³ → 2 loads + 3 m³ → 1 m³ short → $80, while 12 m³ →
+   nothing), the **production & transport surcharge** and the
+   **environment levy** (both flat $/m³ on every delivered m³).
+   `TRUCK_LOAD_M3` and the "Concrete truck load size" production rate no
+   longer feed minimum cartage — the divisor is the 4 m³ minimum itself. Typing a Qty on any of those rows takes that row
    fully manual — that's how a known delivery split is priced exactly.
    None of the three count towards `concreteQty` (they're fees, not
    poured volume), and none is charged on the others. See
@@ -144,192 +147,29 @@ safety net silently. Keep all cost arithmetic in `lib/costing.js`.
    nothing). Every CONCRETE PUMPING rate and minimum comes from the
    supplier's schedule and is editable in the Rates modal.
 
-9. **Reinforcement can be priced off a kg/m³ rate instead of a bar
-   takeoff.** An element carrying `reoRatePerM3` (kg of steel per m³ of
-   concrete — the usual early-stage rule of thumb, ~90 for a suspended slab,
-   ~150 for columns) gets its tonnage derived from its own poured volume by
-   `autoReinforcementByRate`, billed against the "Reinforcement by rate"
-   PROCESSED BAR product whose Qty is TONNES (not metres — its `unitWeight`
-   is deliberately `null` so `computeRowTotal`'s weightBasis branch is
-   skipped). It is **off unless the element carries a rate** — a default here
-   would silently add steel to every existing quote. Typing a Qty on the row
-   takes it manual, exactly like the concrete delivery fees, and the derived
-   tonnage feeds `computeElementReinforcementTonnes` so the steel also earns
-   its steel-fixing crew days rather than costing nothing to install.
+9. **Reinforcement can be priced off a RATE instead of a schedule.**
+   `REINFORCEMENT BY RATE` is the only `volumeRateBasis: true` category: its
+   Qty is entered as **kg of steel per m³ of concrete** and it costs as
+   `(qty * concreteM3 / 1000) * unitCost` (`unitCost` is $/tonne, as for
+   Processed Bar in rule 2). This is the one basis whose cost depends on
+   *another* category's quantities — the element's own CONCRETE rows — so
+   `computeRowTotal` takes a 4th `ctx` argument that every caller builds with
+   **`rowContext(item)`**. If you add a `computeRowTotal` call, pass that ctx;
+   omitting it silently prices every rate row at $0 (it degrades to zero
+   rather than `NaN`, so nothing crashes — it just quietly costs nothing).
+   The delivery-fee rows are not poured volume (`pouredVolume` excludes
+   them), so the levy and surcharge never inflate the steel.
+   `computeElementReinforcementTonnes` counts these rows too, so a
+   rate-priced element still drives steel-fixing crew days like a bar-listed
+   one. These rows are an **alternative** to bar-listing, not an addition —
+   an element carrying both a schedule and a rate buys its steel twice. That
+   isn't enforced (a blank row costs nothing, exactly like every other row);
+   the category label says so on its face instead.
 
 10. **GST is hardcoded at 10%** (`GST_RATE` in `catalog.js`). This is an
    Australian tool. If this is ever adapted for another market, that's
    the one place to change — but check every place `GST_RATE` or `* 1.1`
    is used (currently just `computeMarginLadder`).
-
-## Estimates — the Piles element
-
-`portal/estimates-app.html` has **one** `Piles` element, under Foundations.
-The pile TYPE and the CROSS-SECTION are dropdowns on the card, not separate
-library entries — an earlier version listed eleven of them and it read as
-clutter.
-
-`calc:"piles"` is a **dispatcher**, not a third implementation. The type
-selects the family and the family selects the calculator:
-
-- **cast in situ** (bored/CFA, driven cast-in-situ, micropile) → the existing
-  `pier` calculator. A hole filled with concrete and a cage, so the takeoff
-  carries concrete, reinforcement *and* spoil.
-- **supplied and driven** (precast square/octagonal/hexagonal/circular, spun
-  hollow, steel tube, steel H/UB, sheet, screw, timber) → `pilesupply`.
-  Manufactured off site, so there is no site pour: pile count, lineal metres,
-  and a supply volume or tonnage. Where a tonnage needs a kg/m the estimator
-  supplies it and the module **warns rather than inventing one**.
-
-`syncPileShape` keeps `d.shape` in step with the (type, section) pair via
-`PILE_SHAPE_FOR`, and narrows the section list to what that type actually
-comes in. Both selects carry `data-rerender` because changing either changes
-which fields the card shows — a show/hide toggle isn't enough.
-
-**The Pile Cap tab** (`pilecap`, in `TABS` right after Reinforcement) takes
-the caps off WITH the piles, which is how a piling package is usually priced.
-`cap.mode` is caps / beam / **both** — "both" needs two sets of dimensions
-(the pads and the beam are different members), so the beam lives in a nested
-`cap.beam`. Fields bind through dotted paths (`cap.L`, `cap.beam.botXDia`) —
-`getPath`/`setPath` handle those.
-
-**The cap count is derived, not typed.** `pileCapCount` is
-`ceil(pileQty / cap.pilesPerCap)`, so changing the pile count changes the
-caps — that coupling is the whole reason for taking them off here. There is
-deliberately no cap Quantity field.
-
-It delegates to `computePileCap` (once per mode, with `qty` and `shape`
-overridden) rather than reimplementing it, so an integrated cap and a
-standalone one can never give different steel. The tab carries the full cap:
-both mats, side/face bars, column starters, blinding and vapour membrane, and
-excavation oversize.
-
-**Cap and beam formwork lives on the Formwork tab, not the Pile Cap tab**
-(`renderPilesCapFormwork`, appended to `parts.form`). An estimator pricing
-formwork wants every formed face on this element in one place — the casing
-and the cap sides together — rather than hunting for half of it two tabs
-away; the Pile Cap tab keeps a pointer where the faces used to be. The faces
-are named for what they are (`Long side 1 (L × D)`, `End 2 (W × D)`, and the
-beam's own `Side 1`/`End 1`) rather than A/B/C/D, and the section shows the
-`Formed area` it produces so it can be read against the billed Side formwork
-line without switching to Results. It is the same `cap.formA`…`cap.formD`
-fields `computePileCap` already costs off — nothing recomputes area here, the
-readout sums the same faces. All four toggles and `cap.on` pass
-`rerender = true` to `chk(field, checked, label, toggle, rerender)`: a plain
-`toggle` only shows/hides a `data-show-if` block, which would leave this
-section's text and area stale.
-
-Watch the default merge in `pilesDefaults`: `pileSupplyDefaults()` must come
-BEFORE `pierDefaults()`, because the element opens on a cast-in-situ pile and
-the two families share keys (`qty`, `cover`, `grade`, the starter set). With
-the order reversed a new card opened on 10 piles instead of 1.
-
-**Pile Cap and Capping Beam remain their own Foundations element types**, for
-caps picked up by several pile groups or scheduled separately.
-
-Dowels are entered **once, at the pile**, on the Connections / Dowels tab,
-and name the cap or capping beam they run into (`targetSelect` takes an array
-of calcs). Counting them on the pile is what stops the cap double-counting
-them. `renderPileCap`, `renderPier` and `renderStripFooting` each once built
-a starter section and then forgot to return `conns`, so the bars billed off
-the defaults with no field anywhere on the card to edit them — if you add a
-calculator with connections, check the key is in the return. There is a
-one-liner in `scripts/` history for sweeping this: find every `render*` that
-declares `conns` and doesn't name it in its `return {…}`.
-
-`LEGACY_LIB_ITEMS` keeps the retired per-type ids (`boredpier`,
-`precastpile`, …) resolvable in `LIB_INDEX` without rendering them, so a
-takeoff saved before this change still opens.
-
-New workspace cards open **expanded**. They used to roll up the instant they
-appeared, which hid the very fields you added the element to fill in; the
-`estNewCollapsed` preference now has to be explicitly turned ON to get the
-old behaviour, and "Roll up all elements" is unchanged.
-
-## Connection / starter bars
-
-Every starter, dowel, continuity bar and step dowel in Estimates resolves its
-length through **`connBarLenMm(o, prefix, dia)`** in `estimates-app.html`.
-There is one implementation and no inline `embed + proj` arithmetic left
-anywhere — a pier's starters, a pile cap's column starters, a wall's dowels
-out and a row in the Additional Connections table all measure the same detail
-the same way. Three modes, chosen per set on the card:
-
-- **derive** — embedment + projection + hook allowance + lap. The original
-  behaviour, and still what a set with no `lenMode` stored gets, so no saved
-  takeoff moves.
-- **manual** — one bar's TOTAL length in mm, straight off the bar schedule.
-  Nothing is added to it. This is the honest mode when the schedule is
-  already drawn: re-deriving a figure that exists only invites a discrepancy.
-- **shape** — the bar is sketched (L, Z, cranked, hairpin) and each
-  straightened leg's true length typed in mm; the bar is the legs summed.
-  Reuses the step-bar sketch pad (`openSketchPad(inst, card, "connbar", {dirs,
-  lens})` — the destination travels with the call, because one card can carry
-  many sets, unlike the step bar's fixed field pair).
-
-**Sets are repeatable, because a real head detail is not one bar.** An outer
-ring of hooked N24, an inner ring of straight N16 and a central coupler bar
-is three sets; averaging them into one "quantity × diameter" row is how a
-takeoff quietly loses steel. `<prefix>Layers` multiplies the bar count within
-a set (two mats of the same bar), and every starter block carries an
-additional-sets table underneath (`connSetsUI` / `connSetsLines`, keyed
-`<prefix>Sets`) for the rest.
-
-The field convention is a prefix plus a capitalised suffix, resolved by
-`ck(prefix, name)`: `ck("conn","embed")` → `connEmbed`, `ck("col","embed")` →
-`colEmbed`, `ck("","embed")` → `embed` for a table row. That is what lets one
-resolver and one editor (`connLenUI`) serve sixteen differently-named starter
-blocks plus the nested `cap.col*` set on the Piles card. **Add a new
-connection anywhere and go through `starterBlockUI` / `connLenUI` /
-`connBarLenMm` — never re-derive a bar length inline.**
-
-Two things to watch:
-
-- **The universal Additional Connections table is the same editor.** It
-  appears on every element whatever its calculator, so any element can
-  express a connection its own starter block doesn't cover. Its rows
-  predate sets and named their description `role`; `normConnSet` folds that
-  into `label` on read, idempotently, so an old takeoff opens intact.
-- **`stemStarterProj` exists only because the retaining wall's stem starters
-  used to hard-add 400mm of lap inside the formula.** Now that the length
-  goes through the shared resolver that 400 has to be a real field, so
-  `computeRetWall` seeds it when it's absent. Delete that line and every
-  pre-existing retaining wall silently shortens its starters.
-
-## Structural steel
-
-The catalog covers structural steel alongside concrete: seven categories
-(`STEEL SECTIONS — BEAMS & COLUMNS`, `— HOLLOW & ANGLE`, `STEEL FRAMING —
-PORTALS, TRUSSES & BRACING`, `STEEL PURLINS & GIRTS`, `ROOF & WALL CLADDING`,
-`STEEL CONNECTIONS & JOINT DETAILS`, `STEEL PROTECTIVE TREATMENT`) and 21
-element types under a `STRUCTURAL STEEL` category, split into STEEL FRAMING /
-STEEL ROOFING & CLADDING / STEEL CONNECTIONS.
-
-Three things about it are easy to get wrong:
-
-1. **The two `STEEL SECTIONS` categories are `weightBasis: true`** — Qty is
-   METRES, `unitCost` is $/tonne, and the unit weights are the real AS/NZS
-   designated masses (a 310UB40.4 *is* 40.4 kg/m). Steel is bought by weight
-   and measured off drawings by length, the same reason PROCESSED BAR works
-   this way. Everything else steel is priced per its own unit.
-
-2. **`computeElementReinforcementTonnes` whitelists the reinforcement
-   categories.** It used to count "any product with a `unitWeight`", which
-   was fine until steel arrived — every UB, purlin and cleat carries a kg/m
-   too, and they were silently counted as reinforcement, booking
-   steel-FIXING crew days for steel that gets erected by crane. Keep the
-   whitelist; don't go back to sniffing `unitWeight`.
-
-3. **Only two steel labour rows auto-fill.** "Erect steel frame" derives crew
-   days from tonnage (`erect_t_crewday`, 4 t/day) and books the crane for the
-   same days — forgetting the crane is the classic way a steel quote comes in
-   short. "Roof & wall sheeting" derives from cladding m². Bolt-up, site
-   welding, purlins/girts and touch-up are piece-count work and stay manual,
-   the same call already made for formwork and excavation.
-
-`LABOUR_TEMPLATES.steel` is its own sequence (erect → bolt up → weld →
-purlins → sheeting), not the concrete crew sheet, and three resource columns
-(`erector_day`, `welder_day`, `ewp_day`) were added for it.
 
 ## How to extend
 
@@ -360,7 +200,7 @@ purlins → sheeting), not the concrete crew sheet, and three resource columns
   external/landscape → pool → civil) — that order is what the dropdown
   and summary display, and it's meaningful to an estimator scanning the
   list. `ELEMENT_TYPES` is deliberately comprehensive — every
-  concrete/structural element BOMA ESTIMATES might meet across any building or
+  concrete/structural element BOMA might meet across any building or
   civil project, not curated per job (see rule 1).
 
 - **Add a new labour resource:** add to `RESOURCE_COLS` with a unique
@@ -390,83 +230,6 @@ multi-project support (a single quote under the old fixed `boma-quote`
 key) auto-migrates into project #1 the first time the index loads empty —
 see `migrateLegacyQuote`.
 
-## Trial meter (no login)
-
-The deployed portal has **no login screen and no password**. A visitor lands
-and the app opens immediately. What limits them is `api/trial.js`, a Vercel
-serverless function, and the `public.trial_visitors` table
-(`supabase/migrations/0003_trial_meter.sql`).
-
-- **5 sessions, 1 hour each, 5 hours total** — whichever runs out first
-  shows `#screen-locked` ("GET FULL VERSION").
-- **A session starts on the first request that finds no live one**, so
-  landing on the page *is* starting a session. A reload during a live one
-  resumes it rather than spending another.
-- Time is charged from the session's own `started_at`, so closing the tab
-  doesn't pause the clock.
-
-**The rule that matters: the client never decides anything.** The countdown
-in `portal-shell.html` is an animation between server answers, and it
-re-asks every 60 s. An earlier version kept the counters in `localStorage`
-and was worthless — "clear site data" was a reset button. If you move any
-part of this decision back into the browser, you have removed the limit.
-`trial_visitors` has RLS enabled with **no policies**, so the anon key can't
-read or write it; only `SUPABASE_SERVICE_ROLE_KEY`, which exists solely as a
-server-side env var, can.
-
-**Identity, honestly.** A visitor is a signed HttpOnly cookie plus a hash of
-their IP. Someone who clears cookies or opens a private window looks new —
-unavoidable without a login, which is deliberately not what this does.
-`MAX_TRIALS_PER_IP` (3, over 30 days) is what stops that being free: past
-the cap, a "new" visitor from that network inherits the most-spent existing
-row instead of a fresh five hours. It's set to 3 rather than 1 because
-offices, universities and mobile carriers share addresses, and turning away
-a genuine second viewer is worse than letting a determined person retry.
-
-**Owner key.** `2580` (or `TRIAL_OWNER_KEY`, which overrides it) lifts every
-limit on the browser that enters it. There are two ways in and neither is
-offered to visitors: `/?key=<key>`, which scrubs itself from the address bar,
-and triple-clicking the wordmark, which opens a small prompt. The prompt is
-reachable from the lock screen too — that is exactly when the owner needs it.
-The real check is server-side; the client-side comparison in the shell only
-runs in fallback mode, where nothing is enforced for anyone anyway.
-
-**Say nothing about the limits.** The meter is enforced, never advertised.
-No screen a visitor sees may state how many sessions or hours they get — not
-the dashboard, not the countdown pill, not the lock screen. The pill is a
-bare `MM:SS left` clock and exists only so nobody is cut off mid-edit with no
-warning; it carries no session count and no total. The lock screen says
-`GET FULL VERSION` and one neutral line. `scripts/verify-portal-e2e.mjs` has
-three checks that fail if that copy comes back, so don't "helpfully" restore
-it.
-
-**Owner bypass.** `TRIAL_OWNER_KEY` — visiting `/?key=<it>` sets a cookie
-that skips the meter, so you can always demo without burning trial. The key
-is scrubbed from the address bar on arrival.
-
-**Fallback mode.** If the env vars aren't set, `/api/trial` answers
-`configured: false` and the shell drops back to a local per-browser count so
-`npm run dev` and un-configured previews still work. That mode shows a
-`local` badge next to the session count. It is not a limit — never let a
-real deployment run in it.
-
-Checks: `npm run verify:trial` (Node-only, runs the real handler against an
-in-memory PostgREST — covers forged cookies, the IP cap, and that a database
-outage fails **closed** rather than granting unlimited access) and
-`npm run verify:e2e` (Playwright, drives the built portal; needs
-`npm run build:portal` and `npm i -D playwright` first).
-
-## Renamed storage keys
-
-Every localStorage key this app owns is prefixed `boma-`. That prefix used to
-be `gradcon-`, so `src/lib/legacyKeys.js` (`migrateLegacyKeys`, called from
-`src/main.jsx`) copies each `gradcon-*` key to its `boma-*` twin on startup —
-only where the new key isn't already set, so it's idempotent and never
-clobbers newer work. The three vanilla-JS portal tools and the shell carry a
-compact inline copy of the same logic at the top of their first `<script>`,
-so they migrate correctly when opened standalone too. If you add a key, use
-the `boma-` prefix and nothing else needs to change.
-
 ## Optional Supabase backend
 
 `lib/storage.js`'s `useStoredState` — the one hook every piece of
@@ -488,6 +251,265 @@ hardcode a URL or key. `VITE_SUPABASE_ANON_KEY` must be the
 anon/publishable key; the secret/service_role key bypasses every RLS
 policy and must never ship in client code. See `.env.example`.
 
+## How a project is persisted (read before touching storage.js, projects.js or quoteVersions.js)
+
+Three layers, each with a rule that was learned the hard way:
+
+- **The live row** (`useStoredState` in `lib/storage.js`, one `estimator_kv`
+  row per key) is the moving copy: every edit lands there within 500 ms. A
+  failed save **retries on its own** (5 s → 15 s → 30 s → every 60 s) and the
+  editor shows a red banner until it lands — a project once vanished
+  because a save failed silently and the badge was the only sign. The hook
+  cannot save an edit made before its row has loaded, so `ProjectEditor`
+  renders nothing editable while `quoteStatus === "loading"`; never remove
+  that gate. `applyRemote()` is the ONE way a stored value enters state —
+  it arms the "remote apply" flag only when React will actually re-render
+  (a same-reference `initial` bails out, and an armed flag would swallow the
+  user's first real edit). `localEditPending()` is the ONE definition of
+  "this browser is mid-write" that the poll, the realtime push and the
+  cache-first reconcile all consult.
+- **Cache-first mirrors** (`lib/localMirror.js`, `cacheFirst: true` on the
+  projects index and the rates only) paint the last-known copy instantly
+  with status `"syncing"`, then reconcile on `updated_at`. One-off
+  migrations in `App.jsx` wait for `"saved"` (see `settled()`). **A project's
+  quote is never cache-first**: its mirror would have to drop the markup
+  drawings to fit, and a save from that copy would delete them. The
+  dashboard's summary mirrors (drawings' image data stripped) exist only to
+  draw rows. Every quote row is prefetched in one like-query at boot; the
+  FIRST `readQuotes()` consumes it, later calls hit the database.
+- **Versions** (`lib/quoteVersions.js`) are immutable full copies in the
+  `boma-files` bucket under `quote-versions/<projectId>/` — one on every
+  Save, one every N minutes (portal Settings `quotesAutosaveMinutes`, 0 =
+  off) while the quote has changed, and one "before-restore" ahead of any
+  restore. Nothing deletes a version. The same document shape is what "Save
+  to computer" downloads and "Open .json" reads; filenames must stay ASCII
+  (Chromium drops a download name containing an em dash or curly quote).
+
+A new project is a **draft** held only in `App` state until it has a name
+or an element (`onPromote`); leaving it unpromoted discards it, so an
+"Untitled project" never persists. The dashboard prunes index entries whose
+row does not exist (older than an hour, and only when the fetch plainly
+succeeded) — an entry with no row is the other way "Untitled project" used
+to appear.
+
+The Quotes bundle is inlined into the portal and runs from a blob: URL, so
+a relative chunk import cannot resolve there: `scripts/assemble-portal.mjs`
+rewrites each lazily-loaded chunk (today only the PDF renderer) to
+`location.origin + "/assets/<chunk>"` and asserts every step — a build only
+succeeds with a working lazy path. `vite.config.js` turns the preload
+helper off so the import takes the plain form that rewrite targets.
+
+## Estimates layout switch (Phase 1 of the UX redesign)
+
+Estimates has two layouts over ONE DOM and one set of calculators:
+**classic** (the default: every element card stacked in the Workspace) and
+**blueprint** (opt-in: element navigator | the selected card | inspector,
+tutorials in a Help drawer, cooler tokens). The switch is the portal
+preference `estBlueprintShell` (Settings → "Estimates: new blueprint layout",
+or the ⇄ button in the Estimates header, which writes the same key through
+`setPortalPref`). `applyShellMode(mode)` sets `body[data-shell]`, relabels
+the tabs from `SHELL_LABELS`, and re-renders the workspace; every blueprint
+style is scoped under `body[data-shell="blueprint"]`, so the classic skin is
+untouched while the switch is off. `renderWorkspace()` branches to
+`renderBlueprintWorkspace()` which mounts ONLY the selected element's card
+(`BP_SELECTED_ID`) and never writes to `inst._collapsed` — the fold state
+belongs to the classic layout. No layout state is ever saved into the
+takeoff (`estimateStateSnapshot` is unchanged); a takeoff edited in one
+layout opens identically in the other. `refreshCardResults` is the one hook
+that refreshes the inspector and the navigator row after an edit — keep
+calling it rather than recomputing totals in the shell code.
+
+## Estimates cloud sync (read before touching saveEstimateState, syncFromCloud or kvPush)
+
+Three rules, each learned from a real loss (18 Beach Road, 8 Sep 2026: a
+second tab pushed its stale two-element copy over a five-element takeoff,
+and the first tab pulled it back within six seconds):
+
+1. **A tab never pushes a takeoff until it has reconciled with the cloud copy
+   of that key this session** (`CLOUD_RECONCILED_KEY`, set by `syncFromCloud`).
+   `pushTakeoffToCloud` is the ONE cloud writer for takeoff rows; edits made
+   before reconciling are saved locally and go up afterwards
+   (`PENDING_CLOUD_PUSH`). Pushes are serialised per key (`PUSH_STATE`) and an
+   unchanged snapshot is never re-sent (`LAST_CLOUD_HASH`), so tabs cannot
+   ping-pong echoes.
+2. **Every push is conditional** on the row being unchanged since this tab
+   last synced it (`kvPatchIfUnchanged`, PostgREST `updated_at=eq.`). On a
+   conflict the other device's copy is kept as a cloud version
+   (`other-device`) BEFORE this tab's live work goes up, and the estimator is
+   told in the save-status line. This tab's in-memory work always wins — it is
+   the human's latest intent — but nothing is discarded.
+3. **Cloud versions are immutable and unlimited**: `keepEstimateVersion`
+   writes `estimate-versions/<projectId>/<iso>-<source>.json` to the
+   `boma-files` bucket on every 💾 Save, every N minutes while the takeoff
+   changes (portal `quotesAutosaveMinutes`, 0 = off), before a cloud pull
+   replaces local content that differs (`before-sync`), before any restore,
+   and on every conflict. `📁 Projects ▾` lists them with restore. Nothing
+   deletes a version. `scratchpad`'s `test-sync-safety.mjs` proves all three
+   with two browsers on a mock cloud; keep it passing.
+
+## Estimates provenance and status (Phase 2)
+
+Data, not layout, so both layouts share it: `inst.entered[field] = true` is
+recorded the moment a field is typed (`markEntered`); a field equal to
+`defaultDataFor(typeKey)` and never typed reads as **Default**, never as
+entered. `inst.review = {hash, at}` is written by "Mark reviewed"; the status
+(Draft / Reviewed / Changed since review / Imported — verify) is DERIVED from
+the hash on every read, so no edit path has to maintain it. `computeInstance`
+normalises every warning to `{text, section}` and appends the generic checks
+in `validateInstance` (cover vs section, spacing ≤ 0, openings ≥ host);
+warnings never block a save. Manual overrides carry an optional `reason` next
+to the quantity and `baseLine` copies it onto the line as `overrideReason`.
+The blueprint-only chrome (header row 2, section rail, input chips, ↺ default,
+inspector warnings/trace) all reads these; `refreshCardResults` → 
+`refreshSectionRail` is the one refresh path.
+
+## Estimates assembly checklist and 3D (Phase 2B, pad footing first)
+
+The 3D model is a VIEW of the takeoff, never a second calculator.
+`buildElementScene(inst)` (estimates-app.html) reads the same instance
+fields and result lines the Quantity Register uses and returns a SceneModel
+(`{units:"mm", nodes:[{id, role, geometry, included, ghost, visible,
+fields}], dimensions, labels}`); the viewer in `portal/estimates-3d/main.js`
+(Three.js 0.186.0, pinned, built by `vite.3d.config.js` into
+`dist/assets/estimates-3d.js`) only draws it and never writes back. The
+hosted portal fetches that file on demand from `location.origin + "/assets/…"`
+the first time a 3D view opens; the standalone/offline copies embed it as
+base64 through the `<!-- __BOMA_3D_BUNDLE__ -->` placeholder (asserted by
+the assembler). Run the full `npm run build` before `assemble-portal.mjs` —
+the assembler rewrites dist/index.html in place and cannot run twice on it.
+
+Two independent controls, by rule: **Include in estimate** is the card's own
+canonical checkbox/field (the checklist's checkbox carries the same
+`data-field`, so the calculator recomputes and only then is the scene
+rebuilt); **Visible in 3D** (`VIS_3D`, session-only, never saved) hides the
+object and can never change a quantity. `padComponents(inst)` is the one
+component tree (Core / Suggested—review / Included / Excluded / N/A); a
+suggestion becomes Excluded or N/A only through an explicit decision stored
+in `inst.scope[id] = {decision, reason}`, and `markReviewed` is refused while
+any suggestion is undecided — "not applicable" is never the same as "not
+reviewed". `refreshCardResults` → `refresh3D` is the only scene refresh
+path; `renderWorkspace`/`rerenderCardKeepTab` dispose the viewer first, so a
+viewer never outlives its card. No WebGL → the SVG drawing and checklist
+stay fully usable. `scratchpad/test-3d.mjs` proves parity, visibility,
+decisions, disposal and the fallback; keep it passing. Extending 3D to other
+element families waits on the owner's approval of the pad footing.
+
+## Estimates data-entry power tools (Phase 3)
+
+- **Numeric fields are `<input type="text" inputmode="decimal" data-num>`**,
+  not `type=number`: `parseNumInput(raw, displayUnit)` is the ONE parser —
+  a hand-written tokenizer/recursive-descent evaluator for `+ - * / ( )`,
+  thousands separators and a trailing `mm|cm|m` suffix (converted into the
+  field's display unit from `fieldDisplayUnit`). It never calls `eval` or
+  `Function`; anything it cannot parse is shown red and NOT stored. The
+  display normalises to the result on change. Arrow keys step (Shift ×10),
+  Enter in a table row adds a row, Ctrl+D duplicates the row, pasting a
+  column fills down. Manual-override cells stay `type=number`.
+- **Undo/redo** is snapshot-based: `computeAllAndRefresh` calls
+  `undoCommit(UNDO_CTX)`; keystrokes in the same field within 1.5 s coalesce
+  into one step; `applyLoadedEstimateState` resets the history on any real
+  load/sync/restore so undo never crosses another device's save. Undo runs
+  through the normal save path, so the autosaved copy and the cloud follow.
+- **Templates** (`boma-estimate-templates`, local + cloud row) copy
+  configuration only (`templateDataFrom`: no overrides, import flags,
+  derived `_` fields); adding one gives a new ID and no results/history.
+  "Copy values from…" and "Duplicate — settings only" (`DIM_FIELDS` reset)
+  live in the card's ⧉ Duplicate ▾ menu.
+- **Tags** `inst.tags = {level, zone, pour}` are data (saved); the navigator's
+  multi-select (`BP_MULTI`, session) drives `bulkApply` for tags, review,
+  delete. Bulk review skips elements with undecided assembly items.
+- **Register**: `registerFilteredLines()` is the one filter (selects, chips,
+  search incl. warnings and tags); `regGroupKey` groups by element /
+  material / category / level / zone / pour; totals show filtered vs whole
+  project; rows jump to their source section (`openLineSource` →
+  `lineSection`); saved views (`boma-estimate-register-views`) and hidden
+  columns (`boma-estimate-register-cols`) are per-browser preferences;
+  "Export filtered view" exports exactly the rows shown.
+
+## Estimates standards profile, allowances and review gate (Phase 4)
+
+- `docs/ESTIMATES_COVERAGE.md` is the coverage audit (brief §11.3): map a
+  new real-world item to an existing calculator + modifier first; the
+  generic calculator (`kind` excavation / alteration / temporary / precast /
+  civil) is the universal measured item. The Civil / Bridge library group
+  renders only when `PROJECT.standards.projectType` is civil, bridge or water.
+- `PROJECT.standards` (jurisdiction, NCC class/edition, project type,
+  drawing/spec revisions, engineer, governing standards by exact designation
+  from `STANDARD_OPTIONS`, measurement rules, rate base, currency/GST,
+  `checks` thresholds) is recorded with the takeoff and printed on the PDF
+  and warnings export. Standards are designations only — no standards text,
+  no invented clause references.
+- **Site & Placement Allowances** (`siteAllowancesSection` /
+  `siteAllowanceLines`) put overbreak, rock, dewatering, backfill, placement
+  method, propping and testing on every element as register lines whose spec
+  reads "Scoped allowance — estimating item, not design". Blank = nothing.
+- `validateInstance` emits three levels: `completeness` (○, counted),
+  `sanity` (⚠, counted, thresholds from `standards.checks`) and `verify`
+  (ⓘ, never counted as a warning — cover/grade from defaults, reinforcement
+  adequacy, formwork design, pile capacity are confirmed from the engineer's
+  documents). Wording never asserts a design verdict.
+- The deliberate **Publish** is held by `publishBlockers()`: acknowledgement
+  (`PROJECT.reviewAck` = name, role, time, `linesHash()`), stale
+  acknowledgement, manual overrides without a reason, undecided assembly
+  items. The live auto-publish that follows a first publish is unchanged.
+  `DISCLAIMER_SHORT` appears in Project Setup, the Publish page, the PDF and
+  the warnings CSV.
+
+## Estimates data safety (schema, migration, recovery, raw backup)
+
+`portal/estimates-schema.js` is pure and DOM-free: the assembler inlines it
+into `estimates-app.html` (asserted) and `scripts/verify-estimates.mjs`
+runs the same file in Node against real takeoffs in `tests/fixtures/estimates/`.
+Rules: a snapshot without `schemaVersion` is v1; `migrateEstimateSnapshot`
+deep-copies, repairs STRUCTURE only (never a value, a name or a unit — mm
+stay mm, blank stays blank, zero stays zero), is idempotent, keeps unknown
+fields, and THROWS for anything it cannot read. Every load path (boot,
+cloud sync, save-history restore, Load .json) goes through it. A throw on
+the open takeoff puts the app in RECOVERY MODE: read-only banner, raw copy
+downloadable, and `saveEstimateState`/`autosaveLocal` refuse to write that
+key — before this an unreadable row silently became a fresh takeoff that
+the next autosave wrote over the original. On first load of each schema
+version, before anything is parsed, every raw `boma-*` key is copied to
+`boma-pre-migration-backup::<timestamp>` (never overwritten by the app;
+excluded from later backups); Project Setup offers "Download full backup"
+(all raw keys, with checksum) and the pre-migration copy. JSON downloads
+carry no BOM. `npm run verify` runs both suites.
+
+## Estimates orders, export preview and reconciliation (Phase 5)
+
+`portal/estimates-orders.js` is the second pure, DOM-free module (same
+contract as `estimates-schema.js`: inlined by the assembler, asserted, and
+run in Node by `scripts/verify-estimates.mjs`). It never measures anything
+— it groups, rounds and totals the register lines the calculators already
+produce. Three quantities are kept apart on every order line and never
+merged: **net** (`line.qty`), **adjusted** (`line.finalQty`, waste + lap —
+the register/export figure) and **order** (adjusted rounded UP by the
+material's procurement rule, with the rule text on the row:
+`procurementRuleFor`). `ordersCtx()` in the app hands the module the facts
+it must not hard-code (bar stock length from Project Setup, sheet area,
+trench/strip stock 6 m, concrete step 0.2 m³, the mesh/trench product
+tables). `orderScheduleFrom` keeps the `group::material::unit` key that
+`PROJECT.orderExclude` ticks are stored under; `reinforcementByProduct`
+groups bars by diameter (ligatures join their bar size through `lengthM`),
+trench mesh and strips by product, sheet mesh by type; `pourSchedule`
+groups concrete by grade → the element's `pour` tag → element and rounds
+each pour separately (a separate delivery). `reconcile(sources)` totals
+several line sets independently and compares them to the metric's decimal
+places plus an order-independent `linesFingerprint`; the Export page shows
+element cards = register = export payload, plus the copy last published
+from this browser (stale = publish again). The PDF prints the same block.
+
+**Every export previews first** (`openExportPreview`): the exact rows and
+columns, row count, and the report metadata from `reportMeta()` (project,
+job, revision, drawing/spec revs, `PROJECT.preparedBy`, reviewer, date,
+standards, fingerprint, build). `download()` still shows the copy fallback;
+the preview uses `triggerDownload()` and reports in-dialog. Worksheet CSVs
+stay pure tables (their Final Quantity is a live row-relative formula); the
+order schedule, pour schedule and warnings CSVs append `reportTrailerRows()`.
+`scratchpad/test-phase5.mjs` proves the schedule, preview, reconciliation,
+both bridges (Quotes and Cost Planner pick up one publish) and the offline
+local-only mode; keep it passing with `npm run verify`.
+
 ## PDF / print export
 
 The "Print / PDF" button in `ProjectEditor` calls `window.print()`; the
@@ -506,7 +528,7 @@ lists only lines with a quantity entered. The rest of the editor gets
 ## Self-service element types (Element Types modal)
 
 `ELEMENT_TYPES` in `catalog.js` stays a static, code-reviewed list — but
-An estimator can add their own element types from the app itself via the "Element
+Grady can add his own element types from the app itself via the "Element
 Types" button (`components/ManageElementTypesModal.jsx`), so a new job
 that needs an element type nobody's coded yet doesn't have to wait on a
 code change. Custom types are stored separately under

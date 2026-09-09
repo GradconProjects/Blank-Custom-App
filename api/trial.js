@@ -11,8 +11,9 @@
  * clicks. Anything the client can write, the client can rewrite.
  *
  * The rules (see also CLAUDE.md -> "Trial meter"):
- *   - TRIAL_MAX_SESSIONS (5) sessions, SESSION_MS (1 hour) each,
- *     TRIAL_MAX_MS (5 hours) in total. Whichever runs out first locks.
+ *   - TRIAL_MAX_SESSIONS (3) sessions, SESSION_MS (1 hour) each,
+ *     TRIAL_MAX_MS (3 hours) in total. Whichever runs out first locks,
+ *     and the only way back in is the PIN.
  *   - A session starts on the first request that finds no live one, so
  *     landing on the page IS starting a session. Reloading during a live
  *     session resumes it rather than spending another.
@@ -46,7 +47,7 @@
 import crypto from "node:crypto";
 
 const SESSION_MS = 60 * 60 * 1000;
-const TRIAL_MAX_SESSIONS = 5;
+const TRIAL_MAX_SESSIONS = 3;
 const TRIAL_MAX_MS = TRIAL_MAX_SESSIONS * SESSION_MS;
 
 // How many separate trials one network may mint before newcomers from it

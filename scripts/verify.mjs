@@ -9,8 +9,6 @@
  * Extend this file when you add new domain logic to lib/costing.js.
  */
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
 import {
   FULL_CATALOG, RESOURCE_COLS, ELEMENT_TYPES, CATEGORY_ORDER, SECTION_ORDER, LABOUR_TEMPLATES, MARGIN_STEPS,
 } from "../src/data/catalog.js";
@@ -19,8 +17,7 @@ import {
   computeElementCost, computeGrandTotal, computeMarginLadder,
   defaultRates, newElementItem, rateKey, suggestedLabourPrefill, computeExternalScopeLines,
   labourResourceRate, taskRowMeta, labourQuantities, autoMinimumCartage, autoConcreteSurcharge, autoEnvironmentLevy, computeRowTotal,
-  autoReinforcementByRate, computeElementReinforcementTonnes, autoLabourQtys,
-  computeElementUnitRates, computeProjectUnitRates,
+  computeElementUnitRates, computeProjectUnitRates, rowContext, computeElementReinforcementTonnes, getMarginSteps,
 } from "../src/lib/costing.js";
 import { buildImportFromEstimate, normalizeElementName, geometryForLabel } from "../src/lib/estimateImport.js";
 
@@ -38,11 +35,19 @@ const check = (name, fn) => {
 
 console.log("BOMA ESTIMATES — costing engine checks\n");
 
+/* Concrete prices are BOMA's real supplier rates and DO get corrected (they
+ * are synced from the Rates Library). A check that hardcodes one is really
+ * asserting a price, not a rule, and breaks every time the price moves — so
+ * read the rate the same way the app does and test the arithmetic around it. */
+const RATE = (cat, name, unit) => defaultRates()[rateKey(cat, name, unit)].unitCost;
+const C25 = RATE("CONCRETE", "25 mpa", "m3");
+const C32 = RATE("CONCRETE", "32 mpa", "m3");
+
 /* ---------- catalog shape ---------- */
-check("66 element types, 10 categories, 18 sections", () => {
-  assert.equal(ELEMENT_TYPES.length, 66);
-  assert.equal(CATEGORY_ORDER.length, 10);
-  assert.equal(SECTION_ORDER.length, 18);
+check("45 element types, 9 categories, 15 sections", () => {
+  assert.equal(ELEMENT_TYPES.length, 45);
+  assert.equal(CATEGORY_ORDER.length, 9);
+  assert.equal(SECTION_ORDER.length, 15);
   // Stump Footings and Screw Piles are separate, individually selectable types.
   assert.ok(ELEMENT_TYPES.some((t) => t.name === "Stump Footings"), "Stump Footings present");
   assert.ok(ELEMENT_TYPES.some((t) => t.name === "Screw Piles"), "Screw Piles present");
@@ -56,10 +61,10 @@ check("every element type has both a category and a section", () => {
   });
 });
 
-check("20 material categories, 263 products (incl. CONCRETE PUMPING, INSULATION, Bored Piers subcontract, minimum cartage, levy, surcharge, rate-based reo)", () => {
-  assert.equal(FULL_CATALOG.length, 20);
+check("14 material categories, 180 products (incl. CONCRETE PUMPING, REINFORCEMENT BY RATE, the 32-board INSULATION range, the full 24-size TRENCH MESH grid, Bored Piers subcontract, minimum cartage, levy, surcharge)", () => {
+  assert.equal(FULL_CATALOG.length, 14);
   const total = FULL_CATALOG.reduce((s, c) => s + c.products.length, 0);
-  assert.equal(total, 263);
+  assert.equal(total, 180);
   const conc = FULL_CATALOG.find((c) => c.key === "CONCRETE");
   assert.ok(conc.products.some((p) => p.name === "Production & transport surcharge" && p.unit === "m3" && p.unitCost === 9.17), "concrete surcharge product seeded at $9.17/m³");
   // Vapour barrier is its own OTHER ACCESSORIES product, distinct from Insulation
@@ -78,10 +83,8 @@ check("20 material categories, 263 products (incl. CONCRETE PUMPING, INSULATION,
   assert.ok(insul.products.some((p) => /Kooltherm/.test(p.name)), "specified insulation products present");
 });
 
-check("13 crew-sheet resource columns (both Pump hr and Pump m3, Formwork crew, General Labour crew, Trucks, steel erection trio, no Factory column)", () => {
-  assert.equal(RESOURCE_COLS.length, 13);
-  ["erector_day", "welder_day", "ewp_day"].forEach((k) =>
-    assert.ok(RESOURCE_COLS.some((r) => r.key === k), `steel erection column ${k} present`));
+check("10 crew-sheet resource columns (both Pump hr and Pump m3, Formwork crew, General Labour crew, Trucks, no Factory column)", () => {
+  assert.equal(RESOURCE_COLS.length, 10);
   assert.ok(!RESOURCE_COLS.some((r) => r.key === "factory_hr"), "Factory labour column removed");
   assert.ok(RESOURCE_COLS.some((r) => r.key === "labourer_day"), "General Labour column present");
   const truck = RESOURCE_COLS.find((r) => r.key === "truck_day");
@@ -176,7 +179,7 @@ check("Every product listed with zero qty contributes $0 (full catalog is 'free'
 });
 
 /* ---------- automatic small-load charge ---------- */
-check("Minimum cartage: charged per DELIVERED LOAD on the shortfall under 4 m³, matching Holcim's own table", () => {
+check("Minimum cartage: volume ÷ 4, the rule applied to the REMAINDER of that division", () => {
   const rates = defaultRates();
   const type = ELEMENT_TYPES.find((t) => t.id === "slab_on_ground");
   const mk = (vol) => {
@@ -192,8 +195,8 @@ check("Minimum cartage: charged per DELIVERED LOAD on the shortfall under 4 m³,
     return r ? Math.round(r.total * 100) / 100 : 0;
   };
 
-  // Holcim's published table, load by load: (4 − load) × $80
-  assert.equal(charge(4), 0);
+  // A part load under 4 m³ is charged (4 − load) × $80 — the rule itself
+  assert.equal(charge(4), 0, "exactly 4 m³ is a full load");
   assert.equal(charge(3.5), 40);
   assert.equal(charge(3), 80);
   assert.equal(charge(2.5), 120);
@@ -201,32 +204,43 @@ check("Minimum cartage: charged per DELIVERED LOAD on the shortfall under 4 m³,
   assert.equal(charge(1.5), 200);
   assert.equal(charge(1), 240);
 
-  // PER LOAD, not per order: 8 m³ trucks, so 11 m³ arrives 8 + 3 and only the
-  // 1 m³ short on that second truck is charged. 12 m³ splits 8 + 4: nothing.
+  // …and it is applied to the REMAINDER after dividing the pour by 4.
   const eleven = autoMinimumCartage(mk(11), rates);
-  assert.equal(eleven.loads, 2);
-  assert.equal(eleven.lastLoad, 3);
-  assert.equal(eleven.total, 80);
-  assert.equal(charge(12), 0);
-  assert.equal(charge(16), 0, "two full loads, nothing short");
-  assert.equal(charge(30), 0, "a big pour is never charged — the old 30 m³ rule is gone");
+  assert.equal(eleven.loads, 3, "11 m³ = 2 full 4 m³ loads + a part load");
+  assert.equal(eleven.remainder, 3, "remainder of 11 ÷ 4 is 3");
+  assert.equal(eleven.total, 80, "3 m³ remainder is 1 m³ short = $80");
+
+  // anything that divides evenly by 4 leaves no remainder and costs nothing
+  [4, 8, 12, 16, 20, 32, 100].forEach((v) =>
+    assert.equal(charge(v), 0, `${v} m³ divides evenly by 4`));
+
+  // and every remainder is charged, however big the pour — this is the change
+  // from the old truck-load reading, which let a final load of 4 m³ or more
+  // (5 m³ in one 8 m³ truck, say) escape the charge entirely
+  assert.equal(charge(5), 240, "5 ÷ 4 leaves 1 m³ — 3 m³ short");
+  assert.equal(charge(13), 240, "13 ÷ 4 leaves 1 m³ — 3 m³ short");
+  assert.equal(charge(30), 160, "30 ÷ 4 leaves 2 m³ — 2 m³ short");
+  assert.equal(charge(46.5), 120, "46.5 ÷ 4 = 11 loads + 2.5 m³ — 1.5 m³ short");
+  assert.equal(charge(47.5), 40, "47.5 ÷ 4 = 11 loads + 3.5 m³ — 0.5 m³ short");
 
   // the poured volume counts mixes + blinding, never the additive or the fees
   const mixed = mk(15);
-  mixed.qtys[rateKey("CONCRETE", "Blinding concrete", "m3")] = 5;      // 20 total -> 8+8+4, no charge
+  mixed.qtys[rateKey("CONCRETE", "Blinding concrete", "m3")] = 5;      // 20 total -> divides by 4, no charge
   mixed.qtys[rateKey("CONCRETE", "Penetron (Xypex) additive", "m3")] = 15;
-  assert.equal(autoMinimumCartage(mixed, rates), null);
+  assert.equal(autoMinimumCartage(mixed, rates), null, "20 m³ of real pour divides evenly; the additive is not volume");
   assert.equal(computeElementCost(mixed, rates).concreteQty, 35, "a fee never inflates poured volume"); // 15+5+15 entered rows
 
-  // truck size is editable — 6 m³ trucks split 11 as 6+5, still nothing short
+  // the truck-size production rate no longer feeds this — the divisor is the
+  // 4 m³ minimum itself, so changing truck size must not move the charge
   const small = { ...rates, [rateKey("PRODUCTION", "Concrete truck load size", "m³/load")]: { unitCost: 6 } };
-  assert.equal(autoMinimumCartage(mk(11), small), null);
+  assert.equal(charge(11), 80);
+  assert.equal(autoMinimumCartage(mk(11), small).total, 80, "truck size is irrelevant to the charge now");
 
-  // a typed qty takes the row fully manual (a known 7+4 delivery, say)
+  // a typed qty takes the row fully manual (a known delivery split, say)
   const typed = mk(11);
   typed.qtys[rateKey("CONCRETE", "Minimum cartage (load under 4 m3)", "m3")] = 0;
   assert.equal(autoMinimumCartage(typed, rates), null);
-  assert.equal(computeElementCost(typed, rates).materialsTotal, 11 * 212.5);
+  assert.equal(computeElementCost(typed, rates).materialsTotal, 11 * C25);
 
   // and the $/m³ honours a rates override
   const dearer = { ...rates, [rateKey("CONCRETE", "Minimum cartage (load under 4 m3)", "m3")]: { unitCost: 100 } };
@@ -244,11 +258,11 @@ check("Environment levy auto-applies per m³ to the whole poured volume ($2.80),
   const levy = autoEnvironmentLevy(item, rates);
   assert.equal(levy.qty, 40);
   near(levy.total, 40 * 2.8);
-  near(computeElementCost(item, rates).materialsTotal, 40 * 212.5 + 40 * 2.8);
+  near(computeElementCost(item, rates).materialsTotal, 40 * C25 + 40 * 2.8);
   // typed wins
   item.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
   assert.equal(autoEnvironmentLevy(item, rates), null);
-  near(computeElementCost(item, rates).materialsTotal, 40 * 212.5);
+  near(computeElementCost(item, rates).materialsTotal, 40 * C25);
 });
 
 check("Pumping: contract minimums bill the minimum hours, and every pump rate matches the J. King schedule", () => {
@@ -302,13 +316,13 @@ check("Production & transport surcharge auto-applies per m³ to the WHOLE poured
   assert.equal(sur.qty, 50);
   near(sur.total, 50 * 9.17);
   const cost = computeElementCost(item, rates);
-  near(cost.materialsTotal, 50 * 212.5 + 50 * 9.17);
+  near(cost.materialsTotal, 50 * C25 + 50 * 9.17);
   assert.equal(cost.concreteQty, 50, "the surcharge fee must not inflate poured volume");
   near(labourQuantities(item, rates).concreteM3, 50, "nor the labour engine's concrete m³");
   // a typed qty on the surcharge row switches it fully manual (no double-charge)
   item.qtys[surKey] = 10;
   assert.equal(autoConcreteSurcharge(item, rates), null);
-  near(computeElementCost(item, rates).materialsTotal, 50 * 212.5 + 10 * 9.17);
+  near(computeElementCost(item, rates).materialsTotal, 50 * C25 + 10 * 9.17);
   // the rate honours a rates-library override — editable in place, the Rates modal, everywhere
   delete item.qtys[surKey];
   rates[surKey] = { unitCost: 12.5 };
@@ -322,10 +336,19 @@ check("Quote statuses: 'Completed Estimating' sits between Estimating and Quotin
   QUOTE_STATUSES.forEach((s) => assert.ok(QUOTE_STATUS_STYLES[s], `every status needs a style entry (missing: ${s})`));
 });
 
-check("Formwork rates: Conventional seeds $60/m² and Edgeform $8/lm", () => {
+check("Formwork rates match the Rates Library: Conventional $150/m², Edgeform $50/lm", () => {
+  // These two seeded $60 and $8 while the Rates Library — BOMA's actual
+  // price list — said $150 and $50, so an element card priced conventional
+  // formwork at well under half its real rate. The library rules; this check
+  // exists so the two can never drift apart again unnoticed.
   const rates = defaultRates();
-  assert.equal(rates[rateKey("FORMWORK", "Conventional", "m2")].unitCost, 60);
-  assert.equal(rates[rateKey("FORMWORK", "Edgeform", "m")].unitCost, 8);
+  assert.equal(rates[rateKey("FORMWORK", "Conventional", "m2")].unitCost, 150);
+  assert.equal(rates[rateKey("FORMWORK", "Edgeform", "m")].unitCost, 50);
+  // and the concrete grades the same drift affected
+  assert.equal(rates[rateKey("CONCRETE", "32 mpa", "m3")].unitCost, 213);
+  assert.equal(rates[rateKey("CONCRETE", "25 mpa", "m3")].unitCost, 204);
+  assert.equal(rates[rateKey("CONCRETE", "50 mpa", "m3")].unitCost, 264.2);
+  assert.equal(rates[rateKey("CONCRETE", "40 mpa Agilia", "m3")].unitCost, 339);
 });
 
 check("Subcontract 'quote' items: the received quote is entered as the rate — qty 1 books the whole quote", () => {
@@ -592,13 +615,13 @@ check("computeExternalScopeLines: per-element sell allocation sums exactly to th
   const rates = defaultRates();
   const a = newElementItem(ELEMENT_TYPES.find((t) => t.id === "strip_footings"));
   a.labourAuto = false;
-  a.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10; // $2125 direct
+  a.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10; // 10 × the catalog 25 mpa rate
   a.qtys[rateKey("CONCRETE", "Minimum cartage (load under 4 m3)", "m3")] = 0; // typed 0 disables the auto small-load charge — this check pins the allocation maths
   a.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
   a.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0; // and the auto surcharge
   const b = newElementItem(ELEMENT_TYPES.find((t) => t.id === "capping_beam"));
   b.labourAuto = false;
-  b.qtys[rateKey("CONCRETE", "32 mpa", "m3")] = 5; // $1107.50 direct
+  b.qtys[rateKey("CONCRETE", "32 mpa", "m3")] = 5;
   b.qtys[rateKey("CONCRETE", "Minimum cartage (load under 4 m3)", "m3")] = 0;
   b.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
   b.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0;
@@ -606,11 +629,11 @@ check("computeExternalScopeLines: per-element sell allocation sums exactly to th
   const { lines, totalExGst } = computeExternalScopeLines([a, b, c], rates, 0.08, 0.05, 0.3);
 
   assert.equal(lines.length, 2, "the zero-qty element must not produce a scope line");
-  const directTotal = 2125 + 1107.5;
+  const directTotal = 10 * C25 + 5 * C32;
   const expectedTotal = (directTotal * 1.13) / 0.7; // matches computeMarginLadder's own formula
   near(totalExGst, expectedTotal);
   near(lines.reduce((s, l) => s + l.sellExGst, 0), totalExGst);
-  near(lines[0].sellExGst, (2125 / directTotal) * expectedTotal);
+  near(lines[0].sellExGst, ((10 * C25) / directTotal) * expectedTotal);
 });
 
 /* ---------- custom / one-off items ---------- */
@@ -636,7 +659,7 @@ check("A rates override changes cost; a MISSING key falls back to catalog defaul
   item.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0;
 
   const before = computeElementCost(item, rates).materialsTotal;
-  assert.equal(before, 10 * 221.5);
+  assert.equal(before, 10 * C32);
 
   rates[key] = { unitCost: 300, unitWeight: null };
   const after = computeElementCost(item, rates).materialsTotal;
@@ -644,7 +667,7 @@ check("A rates override changes cost; a MISSING key falls back to catalog defaul
 
   delete rates[key]; // simulate an old saved rates blob missing this key
   const fallback = computeElementCost(item, rates).materialsTotal;
-  assert.equal(fallback, 10 * 221.5); // falls back to catalog default, not 0
+  assert.equal(fallback, 10 * C32); // falls back to catalog default, not 0
 });
 
 /* ---------- multi-element grand total ---------- */
@@ -652,7 +675,7 @@ check("Grand total sums every element's total across the whole quote", () => {
   const rates = defaultRates();
   const a = newElementItem(ELEMENT_TYPES.find((t) => t.id === "strip_footings"));
   a.labourAuto = false; // this check pins the MATERIALS maths; auto labour has its own checks
-  a.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10; // $2125
+  a.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10;
   a.qtys[rateKey("CONCRETE", "Minimum cartage (load under 4 m3)", "m3")] = 0; // typed 0 disables the auto charge
   a.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
   a.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0;
@@ -663,7 +686,7 @@ check("Grand total sums every element's total across the whole quote", () => {
   b.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
   b.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0;
   const total = computeGrandTotal([a, b], rates);
-  assert.equal(total, 10 * 212.5 + 5 * 221.5);
+  assert.equal(total, 10 * C25 + 5 * C32);
 });
 
 /* ---------- margin ladder ---------- */
@@ -875,7 +898,150 @@ check("Import: a count-only reinforcement line (no length, e.g. ligatures) is fl
   assert.ok(flags.some((f) => f.includes("40.01") && f.includes("kg")), `expected the actual weight to be flagged too, got: ${flags.join(" | ")}`);
 });
 
-const { computeTenderProjectSum, parseTenderPrice } = await import("../src/lib/tenderQuoteDefaults.js");
+check("TRENCH MESH covers every L-series size 3-8 bar, priced per length off its own catalog rate", () => {
+  const tm = FULL_CATALOG.find((c) => c.key === "TRENCH MESH");
+  assert.ok(tm, "TRENCH MESH category present");
+  const names = tm.products.map((p) => p.name);
+  const missing = [];
+  ["L8TM", "L11TM", "L12TM", "L16TM"].forEach((fam) => {
+    for (let bars = 3; bars <= 8; bars++) {
+      const n = `${bars} Bar-${fam}`;
+      if (!names.includes(n)) missing.push(n);
+    }
+  });
+  assert.equal(missing.length, 0, `missing trench mesh sizes: ${missing.join(", ")}`);
+  assert.equal(tm.products.length, 24, "3-8 bar x 4 gauges = 24 sizes, nothing duplicated");
+  // the one the estimator asked for by name
+  const l11x7 = tm.products.find((p) => p.name === "7 Bar-L11TM");
+  assert.ok(l11x7.unitCost > 0 && l11x7.unitWeight > 0, "7 Bar-L11TM carries a rate and a weight");
+  // masses rise with bar count within a family — a wider mesh is never lighter
+  ["L8TM", "L11TM", "L12TM", "L16TM"].forEach((fam) => {
+    const w = [];
+    for (let bars = 3; bars <= 8; bars++) w.push(tm.products.find((p) => p.name === `${bars} Bar-${fam}`).unitWeight);
+    for (let i = 1; i < w.length; i++) assert.ok(w[i] > w[i - 1], `${fam} mass falls from ${i + 2} to ${i + 3} bar`);
+  });
+  // TRENCH MESH is NOT weight- or area-priced: it costs qty x $/length (rule 2)
+  assert.ok(!tm.weightBasis && !tm.areaBasis, "trench mesh costs off its catalog $/length, not tonnage or area");
+  // straight through the one place all three bases live (rule 2)
+  assert.equal(computeRowTotal(tm, l11x7, 10), 10 * l11x7.unitCost, "10 lengths cost 10 x the $/length");
+  assert.equal(computeRowTotal(tm, l11x7, 0), 0, "a blank row costs nothing");
+  // its unitWeight is informational tonnage only, never the price basis
+  const l12x7 = tm.products.find((p) => p.name === "7 Bar-L12TM");
+  assert.ok(l11x7.unitWeight < l12x7.unitWeight && computeRowTotal(tm, l11x7, 1) < computeRowTotal(tm, l12x7, 1),
+    "the heavier gauge costs more, but off its own $/length, not off tonnage");
+  // every new size falls back to the catalog default when a saved rates blob predates it (rule 6)
+  const stale = defaultRates();
+  delete stale[rateKey("TRENCH MESH", "7 Bar-L11TM", l11x7.unit)];
+  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "strip_footings"));
+  item.qtys[rateKey("TRENCH MESH", "7 Bar-L11TM", l11x7.unit)] = 10;
+  assert.ok(computeElementCost(item, stale).materialsTotal > 0, "a rates blob saved before these sizes existed still prices them");
+});
+
+check("The agreed house margin is 25%, and 25% margin means cost / 0.75 (a 33.33% markup), never cost x 1.25", () => {
+  assert.equal(catalogAll.DEFAULT_MARGIN, 0.25, "BOMA's agreed margin");
+  assert.ok(MARGIN_STEPS.includes(0.25), "and it is a rung on the ladder, so it renders highlighted");
+
+  // the ladder divides (CLAUDE.md rule 4) — this is the arithmetic Grady
+  // queried, pinned so it can never silently become a markup
+  const cost = 80545.91;
+  const { rows } = computeMarginLadder(cost, 0, 0, 0, [0.25]);
+  const r = rows[0];
+  assert.ok(Math.abs(r.sellExGst - cost / 0.75) < 1e-9, "sell = cost / (1 - 0.25)");
+  assert.ok(Math.abs(r.sellExGst - 107394.5467) < 1e-3, `expected $107,394.55, got ${r.sellExGst}`);
+  // the profit inside that price really is 25% OF THE SELL
+  const profit = r.sellExGst - cost;
+  assert.ok(Math.abs(profit / r.sellExGst - 0.25) < 1e-9, "profit is 25% of the sell price");
+  // ...and 33.33% of the cost, which is what you'd have to mark up by
+  assert.ok(Math.abs(profit / cost - 1 / 3) < 1e-9, "the equivalent markup on cost is 33.33%");
+  // marking up BY the margin instead lands 5 points short — the original bug
+  const wrong = cost * 1.25;
+  assert.ok(Math.abs((wrong - cost) / wrong - 0.20) < 1e-9, "cost x 1.25 only earns 20% margin");
+  assert.ok(r.sellExGst > wrong, "so the ladder always prices above the multiply-by method");
+
+  // every rung states its own markup beside it, so nobody has to convert
+  assert.ok(Math.abs(r.markupOnCost - 1 / 3) < 1e-9, "the 25% rung reports a 33.33% markup");
+  const all = computeMarginLadder(cost, 0, 0, 0, MARGIN_STEPS).rows;
+  all.forEach((row) => {
+    // the markup is exactly what reproduces that rung's sell price from cost
+    assert.ok(Math.abs(cost * (1 + row.markupOnCost) - row.sellExGst) < 1e-6,
+      `cost x (1 + markup) must equal the ${Math.round(row.margin * 100)}% sell price`);
+    // and it is always ABOVE the margin — that is the whole point of the column
+    assert.ok(row.markupOnCost > row.margin, `markup must exceed the margin at ${Math.round(row.margin * 100)}%`);
+  });
+  const pct = (m) => all.find((x) => Math.abs(x.margin - m) < 1e-9).markupOnCost * 100;
+  assert.equal(pct(0.10).toFixed(1), "11.1");
+  assert.equal(pct(0.20).toFixed(1), "25.0");
+  assert.equal(pct(0.30).toFixed(1), "42.9");
+  assert.equal(pct(0.40).toFixed(1), "66.7");
+});
+
+const { pendingRateUpdates, libraryPrices, libraryGovernedKeys, LIBRARY_EXCLUDED_NAMES } = await import("../src/lib/ratesLibrarySync.js");
+
+check("Rates Library rules: its price flows into Quotes over ANY stored value, including a typed one", () => {
+  const CONV = rateKey("FORMWORK", "Conventional", "m2");
+  const C32 = rateKey("CONCRETE", "32 mpa", "m3");
+  // the library's stored shape: {section: {productName: {cost}}}
+  const lib = { formworkLegacy: { Conventional: { cost: 175 } }, concreteGrade: { "32 mpa": { cost: 219 } } };
+
+  // both sitting at their catalog defaults — both move
+  let rates = defaultRates();
+  let up = pendingRateUpdates(rates, lib, {});
+  assert.equal(up.length, 2, `expected both to move, got ${JSON.stringify(up)}`);
+  assert.equal(up.find((u) => u.key === CONV).price, 175);
+  assert.equal(up.find((u) => u.key === C32).price, 219);
+
+  // an estimator (or an older build on another device) has left a different
+  // formwork price in the shared row — the library STILL wins; the Rates
+  // modal shows such rows as "Rates Library" and does not offer an edit box
+  rates = defaultRates();
+  rates[CONV] = { ...rates[CONV], unitCost: 190 };
+  up = pendingRateUpdates(rates, lib, {});
+  assert.ok(up.some((u) => u.key === CONV && u.price === 175), "the library corrects a stored rate whatever set it");
+  assert.ok(libraryGovernedKeys(lib).has(CONV), "...and the modal knows the row is governed");
+
+  // no last-synced record at all (a fresh browser, or a cleared one) makes no difference
+  rates = defaultRates();
+  rates[CONV] = { ...rates[CONV], unitCost: 60 };
+  up = pendingRateUpdates(rates, { formworkLegacy: { Conventional: { cost: 150 } } }, undefined);
+  assert.deepEqual(up, [{ key: CONV, price: 150 }]);
+
+  // already in agreement = no update at all, so this can never render-loop
+  rates = defaultRates();
+  rates[CONV] = { ...rates[CONV], unitCost: 175 };
+  assert.equal(pendingRateUpdates(rates, { formworkLegacy: { Conventional: { cost: 175 } } }, { [CONV]: 175 }).length, 0);
+});
+
+const { computeTenderProjectSum, parseTenderPrice, seedTenderItems } = await import("../src/lib/tenderQuoteDefaults.js");
+
+check("Tender quote prints the FLOOR AREA entered in the quote (measureM2), not the Square Mesh coverage", () => {
+  const raft = newElementItem(ELEMENT_TYPES.find((t) => t.id === "raft_foundation"));
+  raft.label = "Ground Floor Raft";
+  const rates = defaultRates();
+  const mesh = FULL_CATALOG.find((c) => c.key === "SQUARE MESH").products[0];
+  // 400 m² of floor reinforced with TWO layers of mesh = 800 m² of mesh
+  raft.qtys[rateKey("SQUARE MESH", mesh.name, mesh.unit)] = 800;
+  const quote = { overheadPct: 0.08, contingencyPct: 0.05 };
+
+  // unmeasured: nothing else to go on, so the mesh coverage still shows
+  let pts = seedTenderItems(quote, [raft], rates)[0].points.join(" | ");
+  assert.ok(/800/.test(pts), `unmeasured element falls back to the mesh area, got: ${pts}`);
+  assert.ok(labourQuantities(raft, rates).finishM2 === 800, "the mesh still drives finishM2 for the finishing crew");
+
+  // measured in the Quotes section's Project Geometry table — THAT is the
+  // floor area the tender quotes against
+  raft.measureM2 = 400;
+  pts = seedTenderItems(quote, [raft], rates)[0].points.join(" | ");
+  assert.ok(/approx\. 400 m²/.test(pts), `expected the entered 400 m² floor area, got: ${pts}`);
+  assert.ok(!/800 m²/.test(pts), `the 800 m² of mesh must not be quoted as floor area, got: ${pts}`);
+  // and the entered area is exactly what the element's $/m² benchmark divides by
+  const m2Rate = computeElementUnitRates(raft, rates).find((r) => r.unit === "m²");
+  assert.equal(m2Rate.qty, 400, "the tender area and the $/m² divisor are the same figure");
+
+  // a typed 0 / blank is "not measured", not "zero area"
+  raft.measureM2 = "";
+  assert.ok(/800/.test(seedTenderItems(quote, [raft], rates)[0].points.join(" | ")), "a blank area falls back rather than printing 0 m²");
+});
+
 
 check("Tender Project Sum: line-item '$… + GST' prices sum ex-GST; override replaces; markup is a whole %; GST added last and only when on", () => {
   const items = [
@@ -921,9 +1087,9 @@ check("Benchmark rates: whole cost over the geometry measured in Estimates — $
   strip.qtys[rateKey("CONCRETE", "Minimum cartage (load under 4 m3)", "m3")] = 0;
   strip.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
   strip.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0;
-  strip.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10;            // 10 × 212.50 = 2,125
+  strip.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10;            // 10 × the catalog 25 mpa rate
   strip.qtys[rateKey("PROCESSED BAR", "N12", "m")] = 400;          // 400 × 0.91kg = 0.364t × 1925 = 700.70
-  const stripTotal = 2125 + 700.7;
+  const stripTotal = 10 * C25 + 700.7;
 
   // No geometry recorded yet → only the concrete volume can be divided by
   assert.deepEqual(computeElementUnitRates(strip, rates).map((l) => l.unit), ["m³"], "no measures = just $/m³");
@@ -952,7 +1118,7 @@ check("Benchmark rates: whole cost over the geometry measured in Estimates — $
   slab.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 20;
   slab.measureM2 = 180;
   assert.deepEqual(computeElementUnitRates(slab, rates).map((l) => l.unit), ["m²", "m³"], "slab shows m² then m³");
-  near(computeElementUnitRates(slab, rates)[0].rate, (20 * 212.5) / 180);
+  near(computeElementUnitRates(slab, rates)[0].rate, (20 * C25) / 180);
 
   // Nothing entered at all → no rates, never a divide-by-zero
   assert.deepEqual(computeElementUnitRates(newElementItem(ELEMENT_TYPES[0]), rates), []);
@@ -1047,11 +1213,11 @@ check("Project unit rates: the whole quote's cost over the project's total run, 
   strip.measureLm = 60;
 
   const slab = noFees(newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground")));
-  slab.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 20;    // 4,250
+  slab.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 20;
   slab.measureM2 = 250;
 
   const items = [strip, slab];
-  const total = 2125 + 4250;
+  const total = 10 * C25 + 20 * C25;
   const lines = computeProjectUnitRates(items, rates);
   assert.deepEqual(lines.map((l) => l.unit), ["lm", "m²", "m³"], "same fixed lm -> m² -> m³ order as a row");
   near(lines[0].rate, total / 60, "project $/lm over the project's total run");
@@ -1067,234 +1233,271 @@ check("Project unit rates: the whole quote's cost over the project's total run, 
   assert.deepEqual(computeProjectUnitRates([], rates), []);
 });
 
-/* ---------- reinforcement by kg/m³ ---------- */
-const REO_RATE_KEY = rateKey("PROCESSED BAR", "Reinforcement by rate", "t");
-const concreteKeyOf = (name) => rateKey("CONCRETE", name, "m3");
-
-/** An element with `vol` m³ of a real concrete mix and nothing else. */
-function elementWithConcrete(vol, extra = {}) {
-  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "suspended_slab"));
-  const mix = FULL_CATALOG.find((c) => c.key === "CONCRETE")
-    .products.find((p) => p.unit === "m3" && p.unitCost > 0 && !/cartage|surcharge|levy|additive/i.test(p.name));
-  item.qtys[rateKey("CONCRETE", mix.name, mix.unit)] = vol;
-  return { ...item, ...extra, mixKey: rateKey("CONCRETE", mix.name, mix.unit) };
-}
-
-check("Reo by rate is OFF unless the element carries a kg/m³ rate (no silent cost)", () => {
+/* ---------- reinforcement priced as kg per m³ of concrete ---------- */
+check("REINFORCEMENT BY RATE: kg/m³ × the element's poured concrete × $/tonne", () => {
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${a} !~= ${b}${msg ? " — " + msg : ""}`);
   const rates = defaultRates();
-  const item = elementWithConcrete(100);
-  assert.equal(autoReinforcementByRate(item, rates), null, "no rate => no row");
-  const withRate = { ...item, reoRatePerM3: 90 };
-  assert.ok(autoReinforcementByRate(withRate, rates), "a rate switches it on");
-});
+  const RATE_CAT = "REINFORCEMENT BY RATE";
+  const cat = FULL_CATALOG.find((c) => c.key === RATE_CAT);
+  assert.ok(cat, "the category exists");
+  assert.equal(cat.volumeRateBasis, true, "it is the volumeRateBasis category");
+  assert.equal(cat.weightBasis, false, "and NOT weightBasis — it has no unitWeight to cost off");
+  // it is the ONLY one, the same way Processed Bar owns weightBasis
+  assert.deepEqual(
+    FULL_CATALOG.filter((c) => c.volumeRateBasis).map((c) => c.key), [RATE_CAT],
+    "only REINFORCEMENT BY RATE is volume-rate priced",
+  );
 
-check("Reo by rate: tonnes = volume × kg/m³ ÷ 1000, costed at the Processed Bar $/tonne", () => {
-  const rates = defaultRates();
-  const auto = autoReinforcementByRate(elementWithConcrete(100, { reoRatePerM3: 90 }), rates);
-  assert.equal(auto.volume, 100);
-  assert.equal(auto.tonnes, 9);                       // 100 m³ × 90 kg/m³ = 9 t
-  assert.equal(auto.unitCost, 1925);
-  assert.equal(auto.total, 9 * 1925);                 // $17,325
-});
+  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground"));
+  item.labourAuto = false;
+  const rateRow = rateKey(RATE_CAT, "Reinforcement rate — processed bar (cut & bent)", "kg/m3");
 
-check("Reo by rate flows into PROCESSED BAR, and its steel earns fixing crew days too", () => {
-  const rates = defaultRates();
-  const plain = computeElementCost(elementWithConcrete(100), rates);
-  const rated = computeElementCost(elementWithConcrete(100, { reoRatePerM3: 90 }), rates);
-  assert.equal(rated.categoryTotals["PROCESSED BAR"] - plain.categoryTotals["PROCESSED BAR"], 9 * 1925,
-    "materials rise by exactly the derived tonnage");
-  // The element total rises by MORE than the steel itself: 9 t of
-  // reinforcement is 9 t someone has to fix, so the crew engine books the
-  // steelfixer days as well. That coupling is the point of feeding the
-  // derived tonnage into computeElementReinforcementTonnes — a rate-priced
-  // element that quietly cost nothing to fix would be a wrong quote.
-  const labourDelta = rated.total - plain.total - 9 * 1925;
-  assert.ok(labourDelta > 0, "steel-fixing labour follows the derived tonnage");
-  assert.ok(rated.total > plain.total + 9 * 1925, "and the element total carries both");
-});
+  // 90 kg/m³ with no concrete entered yet buys nothing — the rate has no
+  // volume to apply to, so the row is free rather than guessing one.
+  item.qtys[rateRow] = 90;
+  assert.equal(computeElementCost(item, rates).categoryTotals[RATE_CAT], 0,
+    "a rate with no concrete costs nothing");
 
-check("Reo by rate ignores the delivery-fee rows and additives when reading volume", () => {
-  const rates = defaultRates();
-  const item = elementWithConcrete(100, { reoRatePerM3: 90 });
-  item.qtys[concreteKeyOf("Minimum cartage")] = 3;
-  const additive = FULL_CATALOG.find((c) => c.key === "CONCRETE").products.find((p) => /additive/i.test(p.name));
-  if (additive) item.qtys[rateKey("CONCRETE", additive.name, additive.unit)] = 100;
-  assert.equal(autoReinforcementByRate(item, rates).volume, 100, "still 100 m³ of poured concrete");
-});
-
-check("Reo by rate: typing a Qty on the row takes it fully manual", () => {
-  const rates = defaultRates();
-  const item = elementWithConcrete(100, { reoRatePerM3: 90 });
-  item.qtys[REO_RATE_KEY] = 12;                       // a real 12 t schedule
-  assert.equal(autoReinforcementByRate(item, rates), null, "auto stands down");
+  // 20 m³ of 25 mpa at 90 kg/m³ = 1.8 t at $1925/t = $3,465
+  item.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 20;
   const cost = computeElementCost(item, rates);
-  const plain = computeElementCost(elementWithConcrete(100), rates);
-  assert.equal(cost.categoryTotals["PROCESSED BAR"] - plain.categoryTotals["PROCESSED BAR"], 12 * 1925,
-    "the typed tonnage is billed, not the derived 9 t");
+  near(cost.categoryTotals[RATE_CAT], 3465, "90 kg/m³ over 20 m³ = 1.8 t at $1925/t");
+  // and it is real money in the element total, not a display-only figure
+  near(cost.total, cost.materialsTotal, "no labour/custom items in this fixture");
+  assert.ok(cost.materialsTotal > 3465, "the steel sits on top of the concrete cost");
+
+  // raising the pour raises the steel with it — that's the whole point
+  item.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 40;
+  near(computeElementCost(item, rates).categoryTotals[RATE_CAT], 6930, "double the concrete, double the steel");
+
+  // the delivery FEE rows are not poured volume, so they never inflate the steel
+  item.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 40;
+  item.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 40;
+  near(computeElementCost(item, rates).categoryTotals[RATE_CAT], 6930,
+    "the levy and surcharge m³ are fees, not concrete — the steel rate ignores them");
+
+  // computeRowTotal is still the ONE implementation; it just takes the volume
+  near(computeRowTotal(cat, { unitCost: 1925 }, 90, { concreteM3: 20 }), 3465, "computeRowTotal owns the rule");
+  assert.equal(computeRowTotal(cat, { unitCost: 1925 }, 90, undefined), 0,
+    "a missing ctx degrades to zero rather than NaN");
+  near(rowContext(item).concreteM3, 40, "rowContext reports the element's poured volume");
+
+  // stock-bar rate line prices off its own cheaper $/tonne
+  const stockRow = rateKey(RATE_CAT, "Reinforcement rate — stock bar (straight lengths)", "kg/m3");
+  const item2 = newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground"));
+  item2.labourAuto = false;
+  item2.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 10;
+  item2.qtys[stockRow] = 100;
+  near(computeElementCost(item2, rates).categoryTotals[RATE_CAT], 1825, "100 kg/m³ over 10 m³ = 1 t at $1825/t");
 });
 
-check("Reo by rate reports its tonnage, so delivery planning and steel-fixing crew days see it", () => {
+check("a kg/m³ rate drives steel-fixing crew days just like a bar schedule", () => {
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${a} !~= ${b}${msg ? " — " + msg : ""}`);
   const rates = defaultRates();
-  assert.equal(computeElementReinforcementTonnes(elementWithConcrete(100, { reoRatePerM3: 90 }), rates), 9);
-  const manual = elementWithConcrete(100);
-  manual.qtys[REO_RATE_KEY] = 12;
-  assert.equal(computeElementReinforcementTonnes(manual, rates), 12, "a typed tonnage counts too");
-  assert.equal(computeElementReinforcementTonnes(elementWithConcrete(100), rates), 0, "and nothing when unused");
+  const rateRow = rateKey("REINFORCEMENT BY RATE", "Reinforcement rate — processed bar (cut & bent)", "kg/m3");
+  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground"));
+  item.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 25;
+  item.qtys[rateRow] = 80; // 25 × 80 = 2000 kg = 2 t
+  near(computeElementReinforcementTonnes(item, rates), 2, "the rate's tonnage is counted");
+  assert.equal(labourQuantities(item, rates).reinfTonnes, 2, "and reaches the labour engine");
+  // 2 t at the 1 t/crew-day production rate = 2 crew-days on the steel row
+  const tie = item.tasks.find((t) => /tie (steel|reinforcement)/i.test(t.name));
+  assert.ok(tie, "the crew sheet has a steel-fixing row");
+  assert.equal(taskRowMeta(tie.name, labourQuantities(item, rates)).autoQty, 2, "its Qty prefills to 2 t");
+  const sug = suggestedLabourPrefill(item, rates)[tie.id];
+  assert.ok(sug && sug.steelfixer_day > 0, "and it books steel-fixing crew");
+
+  // a rate-priced element with NO concrete books no steel labour either
+  const bare = newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground"));
+  bare.qtys[rateRow] = 80;
+  assert.equal(computeElementReinforcementTonnes(bare, rates), 0, "no concrete, no tonnage");
 });
 
-check("Reo by rate costs nothing with no concrete entered, whatever the rate", () => {
+check("the kg/m³ rows fall back to the catalog rate, and stay editable", () => {
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${a} !~= ${b}${msg ? " — " + msg : ""}`);
+  const RATE_CAT = "REINFORCEMENT BY RATE";
+  const rateRow = rateKey(RATE_CAT, "Reinforcement rate — processed bar (cut & bent)", "kg/m3");
+  // CLAUDE.md rule 6: a saved rates blob predating this category must not
+  // render the row at $0 — it degrades to the catalog default.
+  const stale = defaultRates();
+  delete stale[rateRow];
+  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground"));
+  item.labourAuto = false;
+  item.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = 20;
+  item.qtys[rateRow] = 90;
+  near(computeElementCost(item, stale).categoryTotals[RATE_CAT], 3465,
+    "falls back to the catalog's $1925/t rather than $0");
+  // an edited steel rate flows straight through
+  const edited = defaultRates();
+  edited[rateRow] = { ...edited[rateRow], unitCost: 2100 };
+  near(computeElementCost(item, edited).categoryTotals[RATE_CAT], 1.8 * 2100, "an edited $/tonne is used");
+});
+
+/* ---------- insulation: every board is its own priced thickness ---------- */
+check("INSULATION: rigid foam under-slab by compressive grade, and every family carries thicknesses", () => {
+  const cat = FULL_CATALOG.find((c) => c.key === "INSULATION");
+  const names = cat.products.map((p) => p.name);
+  // the grade the request named, in its full thickness range
+  [25, 50, 75, 100].forEach((t) =>
+    assert.ok(names.includes(`Rigid foam under-slab 50 kPa — ${t}mm`), `50 kPa ${t}mm present`));
+  // and the heavier grades, for loaded slabs
+  [100, 200, 300].forEach((g) =>
+    [50, 75, 100].forEach((t) =>
+      assert.ok(names.includes(`Rigid foam under-slab ${g} kPa — ${t}mm`), `${g} kPa ${t}mm present`)));
+
+  // each family offers more than one thickness, so thickness is a real choice
+  const families = [
+    [/^Rigid foam under-slab 50 kPa/, 4], [/^Rigid foam under-slab 100 kPa/, 3],
+    [/^Rigid foam under-slab 200 kPa/, 3], [/^Rigid foam under-slab 300 kPa/, 3],
+    [/^Kooltherm K3 Floorboard/, 4], [/^XPS rigid board/, 4],
+    [/^EPS board M-grade/, 3], [/^Foilboard rigid panel/, 3],
+    [/^Slab edge insulation/, 2], [/^Thermal break strip/, 2],
+  ];
+  families.forEach(([re, n]) =>
+    assert.equal(names.filter((x) => re.test(x)).length, n, `${re} offers ${n} thicknesses`));
+
+  // a thicker board of the same material always costs more — that's the whole
+  // point of pricing per thickness rather than typing one onto a single SKU
+  const priceOf = (n) => cat.products.find((p) => p.name === n).unitCost;
+  [["Rigid foam under-slab 50 kPa — 25mm", "Rigid foam under-slab 50 kPa — 100mm"],
+   ["XPS rigid board 30mm (R0.88)", "XPS rigid board 100mm (R2.94)"],
+   ["EPS board M-grade 50mm (R1.19)", "EPS board M-grade 100mm (R2.38)"],
+   ["Kooltherm K3 Floorboard 50mm (R2.25)", "Kooltherm K3 Floorboard 100mm (R4.50)"],
+  ].forEach(([thin, thick]) => assert.ok(priceOf(thick) > priceOf(thin), `${thick} costs more than ${thin}`));
+
+  // and a stronger board costs more than a weaker one at the same thickness
+  assert.ok(priceOf("Rigid foam under-slab 300 kPa — 50mm") > priceOf("Rigid foam under-slab 50 kPa — 50mm"),
+    "300 kPa costs more than 50 kPa at the same thickness");
+
+  // strip products stay per-metre, boards stay per-m²
+  cat.products.forEach((p) => {
+    const perM = /^Slab edge insulation|^Thermal break strip/.test(p.name);
+    assert.equal(p.unit, perM ? "m" : "m2", `${p.name} unit`);
+    assert.ok(p.unitCost > 0, `${p.name} is priced`);
+  });
+});
+
+check("insulation boards are ordinary qty × unit-cost rows (no weight/area/rate basis)", () => {
   const rates = defaultRates();
-  const empty = { ...newElementItem(ELEMENT_TYPES.find((t) => t.id === "suspended_slab")), reoRatePerM3: 150 };
-  assert.equal(autoReinforcementByRate(empty, rates), null);
-  assert.equal(computeElementCost(empty, rates).categoryTotals["PROCESSED BAR"], 0);
-});
-
-check("Reo by rate respects a Rates-modal override of the $/tonne", () => {
-  const rates = defaultRates();
-  rates[REO_RATE_KEY] = { ...rates[REO_RATE_KEY], unitCost: 2100 };
-  assert.equal(autoReinforcementByRate(elementWithConcrete(100, { reoRatePerM3: 90 }), rates).total, 9 * 2100);
-});
-
-/* ---------- structural steel ---------- */
-const steelType = (id) => ELEMENT_TYPES.find((t) => t.id === id);
-const UB_KEY = rateKey("STEEL SECTIONS — BEAMS & COLUMNS", "310UB40.4", "m");
-const SHS_KEY = rateKey("STEEL SECTIONS — HOLLOW & ANGLE", "SHS 150x150x6", "m");
-const PORTAL_KEY = rateKey("STEEL FRAMING — PORTALS, TRUSSES & BRACING", "Portal frame — supply & fabricate", "t");
-const SHEET_KEY = rateKey("ROOF & WALL CLADDING", "Trimdek / monoclad 0.48 BMT", "m2");
-const BOLT_KEY = rateKey("STEEL CONNECTIONS & JOINT DETAILS", "Structural bolt M20 8.8/S", "each");
-const WELD_KEY = rateKey("STEEL CONNECTIONS & JOINT DETAILS", "Site weld — 8mm fillet", "m");
-const GALV_KEY = rateKey("STEEL PROTECTIVE TREATMENT", "Hot dip galvanising", "t");
-
-check("Steel element types cover framing, roofing and connections, in ground-up order", () => {
-  const steel = ELEMENT_TYPES.filter((t) => t.category === "STRUCTURAL STEEL");
-  assert.equal(steel.length, 21);
-  assert.deepEqual([...new Set(steel.map((t) => t.section))],
-    ["STEEL FRAMING", "STEEL ROOFING & CLADDING", "STEEL CONNECTIONS"]);
-  steel.forEach((t) => assert.equal(t.labour, "steel", `${t.id} uses the steel task template`));
-  // superstructure sits after the suspended structure, before external works
-  const order = CATEGORY_ORDER;
-  assert.ok(order.indexOf("STRUCTURAL STEEL") > order.indexOf("SUSPENDED STRUCTURE"));
-  assert.ok(order.indexOf("STRUCTURAL STEEL") < order.indexOf("EXTERNAL & LANDSCAPE CONCRETE"));
-});
-
-check("The steel task template is the erection sequence, not the concrete one", () => {
-  const tasks = LABOUR_TEMPLATES.steel;
-  assert.ok(tasks.some((t) => /erect steel/i.test(t)), "has an erection row");
-  assert.ok(tasks.some((t) => /site welding/i.test(t)), "has a welding row");
-  assert.ok(tasks.some((t) => /roof & wall sheeting/i.test(t)), "has a sheeting row");
-  assert.ok(!tasks.some((t) => /pour|finish concrete|washout/i.test(t)), "no concrete rows");
-});
-
-check("Steel sections cost off Total Weight: Qty is metres, unit cost is $/tonne", () => {
-  const rates = defaultRates();
-  const item = newElementItem(steelType("steel_beam"));
-  item.qtys[UB_KEY] = 100;                               // 100 m of 310UB40.4
+  const cat = FULL_CATALOG.find((c) => c.key === "INSULATION");
+  assert.ok(!cat.weightBasis && !cat.areaBasis && !cat.lengthBasis && !cat.volumeRateBasis,
+    "INSULATION carries no special basis flag");
+  const item = newElementItem(ELEMENT_TYPES.find((t) => t.id === "slab_on_ground"));
+  item.labourAuto = false;
+  const key = rateKey("INSULATION", "Rigid foam under-slab 50 kPa — 100mm", "m2");
+  item.qtys[key] = 250;
   const cost = computeElementCost(item, rates);
-  // 100 m × 40.4 kg/m = 4.04 t × $5,200 = $21,008
-  assert.equal(cost.categoryTotals["STEEL SECTIONS — BEAMS & COLUMNS"], 4.04 * 5200);
+  assert.equal(cost.categoryTotals["INSULATION"], 250 * 27, "250 m² at $27/m² = $6,750");
+  // a missing saved key still falls back to the catalog rate (CLAUDE.md rule 6)
+  const stale = defaultRates();
+  delete stale[key];
+  assert.equal(computeElementCost(item, stale).categoryTotals["INSULATION"], 250 * 27,
+    "falls back to the catalog default rather than $0");
 });
 
-check("Section masses are the real AS/NZS designated masses", () => {
-  const beams = FULL_CATALOG.find((c) => c.key === "STEEL SECTIONS — BEAMS & COLUMNS");
-  assert.equal(beams.products.find((p) => p.name === "310UB40.4").unitWeight, 40.4);
-  assert.equal(beams.products.find((p) => p.name === "610UB101").unitWeight, 101.0);
-  assert.equal(beams.products.find((p) => p.name === "250UC72.9").unitWeight, 72.9);
-  const hollow = FULL_CATALOG.find((c) => c.key === "STEEL SECTIONS — HOLLOW & ANGLE");
-  assert.equal(hollow.products.find((p) => p.name === "SHS 150x150x6").unitWeight, 26.6);
-});
-
-check("Connections, welds and treatment cost straight per their own unit", () => {
+/* ---------- every costing figure is editable ---------- */
+check("Minimum cartage load size is an editable production rate, not a constant", () => {
   const rates = defaultRates();
-  const item = newElementItem(steelType("steel_moment_connection"));
-  item.qtys[BOLT_KEY] = 40;     // 40 × $4.60
-  item.qtys[WELD_KEY] = 12;     // 12 m × $64
-  item.qtys[GALV_KEY] = 2.5;    // 2.5 t × $1,150
-  const cost = computeElementCost(item, rates);
-  assert.equal(cost.categoryTotals["STEEL CONNECTIONS & JOINT DETAILS"], 40 * 4.6 + 12 * 64);
-  assert.equal(cost.categoryTotals["STEEL PROTECTIVE TREATMENT"], 2.5 * 1150);
-});
-
-check("Erection crew days derive from steel TONNAGE, and book the crane with them", () => {
-  const rates = defaultRates();
-  const item = newElementItem(steelType("steel_column"));
-  item.qtys[UB_KEY] = 200;                               // 200 m × 40.4 = 8.08 t
-  const lq = labourQuantities(item, rates);
-  assert.equal(lq.steelTonnes, 8.08);
-  const erect = item.tasks.find((t) => /erect steel/i.test(t.name));
-  assert.equal(taskRowMeta(erect.name, lq).unit, "t");
-  assert.equal(taskRowMeta(erect.name, lq).autoQty, 8.08);
-  const sug = autoLabourQtys(item, rates)[erect.id];
-  // 8.08 t at 4 t/crew-day = 2.02 crew-days; the row is per-person by
-  // default so the erection column shows 2.02 × 4 men = 8.08 man-days.
-  assert.equal(sug.erector_day, 8.08);
-  assert.equal(sug.crane_day, 2.02, "the crane is booked for the erection days, not the man-days");
-});
-
-check("Fabricated portal frames are already tonnes — counted once, per-item lines are not tonnage", () => {
-  const rates = defaultRates();
-  const item = newElementItem(steelType("portal_frame"));
-  item.qtys[PORTAL_KEY] = 6;                             // 6 t of frame
-  item.qtys[rateKey("STEEL FRAMING — PORTALS, TRUSSES & BRACING", "Knee haunch", "each")] = 8;
-  assert.equal(labourQuantities(item, rates).steelTonnes, 6, "the 8 haunches are not 8 tonnes");
-  assert.equal(computeElementCost(item, rates).categoryTotals["STEEL FRAMING — PORTALS, TRUSSES & BRACING"],
-    6 * 5400 + 8 * 540);
-});
-
-check("Sheeting crew days derive from cladding AREA, and purlins stay manual", () => {
-  const rates = defaultRates();
-  const item = newElementItem(steelType("roof_sheeting"));
-  item.qtys[SHEET_KEY] = 600;
-  const lq = labourQuantities(item, rates);
-  assert.equal(lq.claddingM2, 600);
-  const sheet = item.tasks.find((t) => /roof & wall sheeting/i.test(t.name));
-  assert.equal(taskRowMeta(sheet.name, lq).autoQty, 600);
-  const sug = autoLabourQtys(item, rates);
-  assert.ok(sug[sheet.id] && sug[sheet.id].erector_day > 0, "sheeting books erection crew");
-  const purlins = item.tasks.find((t) => /purlins, girts/i.test(t.name));
-  assert.ok(!sug[purlins.id], "purlins/girts are piece-count work — never auto-filled");
-  const weld = item.tasks.find((t) => /site welding/i.test(t.name));
-  assert.ok(!sug[weld.id], "site welding is never auto-filled either");
-});
-
-check("A steel element with nothing entered still costs $0 (whole catalog stays free)", () => {
-  const rates = defaultRates();
-  assert.equal(computeElementCost(newElementItem(steelType("steel_beam")), rates).total, 0);
-});
-
-check("Steel tonnage does NOT leak into the reinforcement tonnage figure", () => {
-  const rates = defaultRates();
-  const item = newElementItem(steelType("steel_beam"));
-  item.qtys[UB_KEY] = 100;
-  item.qtys[SHS_KEY] = 50;
-  assert.equal(computeElementReinforcementTonnes(item, rates), 0,
-    "structural steel is not reinforcement — it must not book steel-fixing crew days");
-});
-
-/* ---------- no third-party personal data ships ---------- */
-check("No email address or phone number is baked into the shipped source", () => {
-  const roots = ["src", "portal", "api", "scripts"];
-  const files = [];
-  const walk = (dir) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else if (/\.(jsx?|mjs|html)$/.test(e.name)) files.push(full);
-    }
+  const type = ELEMENT_TYPES.find((t) => t.id === "slab_on_ground");
+  const mk = (vol) => {
+    const it = newElementItem(type);
+    it.labourAuto = false;
+    it.qtys[rateKey("CONCRETE", "Production & transport surcharge", "m3")] = 0;
+    it.qtys[rateKey("CONCRETE", "Environment levy", "m3")] = 0;
+    it.qtys[rateKey("CONCRETE", "25 mpa", "m3")] = vol;
+    return it;
   };
-  roots.forEach((r) => { if (fs.existsSync(r)) walk(r); });
+  const sizeKey = rateKey("PRODUCTION", "Minimum cartage load size", "m³/load");
+  assert.ok(rates[sizeKey], "the rate is seeded, so it appears in the Rates modal");
+  assert.equal(rates[sizeKey].unitCost, 4, "defaulting to the 4 m³ minimum");
 
-  // The registers used to seed real trade contacts scraped from an email
-  // history — other people's personal data, in an app that gets deployed
-  // publicly. Nothing of the sort may come back.
-  const email = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
-  const phone = /\b(?:0[0-9]{3} ?[0-9]{3} ?[0-9]{3}|0[0-9] [0-9]{4} ?[0-9]{4}|1300 ?[0-9]{3} ?[0-9]{3})\b/;
-  const offenders = [];
-  for (const f of files) {
-    const text = fs.readFileSync(f, "utf8");
-    if (email.test(text)) offenders.push(`${f}: ${text.match(email)[0]}`);
-    if (phone.test(text)) offenders.push(`${f}: ${text.match(phone)[0]}`);
+  // at the default 4 m³: 11 -> 2 loads + 3, 1 short, $80
+  assert.equal(autoMinimumCartage(mk(11), rates).total, 80);
+  assert.equal(autoMinimumCartage(mk(12), rates), null);
+
+  // a supplier working to a 6 m³ minimum: 11 -> 1 load + 5, 1 short, $80
+  const six = { ...rates, [sizeKey]: { unitCost: 6 } };
+  const r11 = autoMinimumCartage(mk(11), six);
+  assert.equal(r11.threshold, 6, "the result reports the load size it used");
+  assert.equal(r11.remainder, 5);
+  assert.equal(r11.total, 80, "6 − 5 = 1 m³ short");
+  assert.equal(autoMinimumCartage(mk(12), six), null, "12 ÷ 6 = 2 loads exactly, nothing over");
+  assert.equal(autoMinimumCartage(mk(13), six).total, 400, "13 -> 2 loads + 1, 5 m³ short of 6");
+
+  // a 2 m³ minimum makes far more pours divide evenly
+  const two = { ...rates, [sizeKey]: { unitCost: 2 } };
+  assert.equal(autoMinimumCartage(mk(11), two).total, 80, "11 -> 5 loads + 1, 1 m³ short");
+  assert.equal(autoMinimumCartage(mk(12), two), null, "12 divides evenly by 2");
+
+  // a nonsense load size degrades to no charge rather than dividing by zero
+  assert.equal(autoMinimumCartage(mk(11), { ...rates, [sizeKey]: { unitCost: 0 } }), null);
+});
+
+check("Margin ladder rungs are editable, and bad input falls back to the catalog list", () => {
+  const store = {};
+  const g = globalThis;
+  const had = Object.prototype.hasOwnProperty.call(g, "localStorage");
+  const prev = had ? g.localStorage : undefined;
+  g.localStorage = {
+    getItem: (k) => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+  };
+  const setPrefs = (o) => { store["boma-preferences"] = JSON.stringify(o); };
+  try {
+    setPrefs({});
+    assert.deepEqual(getMarginSteps(), [...MARGIN_STEPS].sort((a, b) => a - b), "no preference = the catalog ladder");
+
+    // an entered ladder replaces the catalog one; the house default is always
+    // folded in so the highlighted row exists, whatever the ladder says
+    setPrefs({ marginStepsPct: "10,20,30,45" });
+    assert.deepEqual(getMarginSteps(), [0.1, 0.2, 0.25, 0.3, 0.45], "an entered ladder replaces it, with the 25% default folded in");
+
+    setPrefs({ marginStepsPct: "10,25,45" });
+    assert.deepEqual(getMarginSteps(), [0.1, 0.25, 0.45], "a ladder that already lists the default is left alone");
+
+    // the default margin is always represented, so the highlight has a row
+    setPrefs({ marginStepsPct: "10,20", defaultMarginPct: 33 });
+    assert.deepEqual(getMarginSteps(), [0.1, 0.2, 0.33]);
+
+    // junk, out-of-range and duplicate rungs are dropped
+    setPrefs({ marginStepsPct: "10, abc, 200, -5, 20, 20" });
+    assert.deepEqual(getMarginSteps(), [0.1, 0.2, 0.25], "junk dropped; the 25% house default merged in");
+
+    // nothing usable at all falls back rather than producing an empty ladder
+    setPrefs({ marginStepsPct: "abc, 300" });
+    assert.deepEqual(getMarginSteps(), [...MARGIN_STEPS].sort((a, b) => a - b));
+
+    // and the ladder still drives a real sell price
+    setPrefs({ marginStepsPct: "50" });
+    const { rows } = computeMarginLadder(1000, 0, 0, 0, getMarginSteps());
+    const fifty = rows.find((r) => Math.abs(r.margin - 0.5) < 1e-9);
+    assert.ok(fifty && Math.abs(fifty.sellExGst - 2000) < 1e-6, "50% margin on $1,000 sells at $2,000");
+  } finally {
+    if (had) g.localStorage = prev; else delete g.localStorage;
   }
-  assert.deepEqual(offenders, [], "personal contact data found in source");
+});
+
+check("Rates Library rules: a listed product moves to the library price whatever Quotes stores", () => {
+  const conv = rateKey("FORMWORK", "Conventional", "m2"), edge = rateKey("FORMWORK", "Edgeform", "m");
+  const lib = { formworkLegacy: { Conventional: { cost: 150 }, Edgeform: { cost: 50 } } };
+  const rates = { [conv]: { unitCost: 60 }, [edge]: { unitCost: 8 } };          // what a stale device left in the shared row
+  const upd = pendingRateUpdates(rates, lib, {});                              // no last-synced record at all (a fresh browser)
+  assert.deepEqual(upd.map((u) => [u.key, u.price]).sort(), [[conv, 150], [edge, 50]].sort());
+  assert.deepEqual(pendingRateUpdates({ [conv]: { unitCost: 150 }, [edge]: { unitCost: 50 } }, lib, {}), [], "nothing pending once they agree");
+  assert.deepEqual(pendingRateUpdates({ [conv]: { unitCost: 999 } }, lib, {}), [{ key: conv, price: 150 }], "a hand-typed $999 does not block the library either");
+});
+check("Rates Library rules: excluded and ambiguous names never move a Quotes rate", () => {
+  assert.ok(LIBRARY_EXCLUDED_NAMES.includes("Delivery fee"));
+  const del = rateKey("REINFORCING ACCESSORIES", "Delivery fee", "each");
+  const lib = { reinfAcc: { "Delivery fee": { cost: 300 } }, otherAcc: { "Delivery fee": { cost: 0 } } };
+  assert.deepEqual(pendingRateUpdates({ [del]: { unitCost: 0 } }, lib, {}), []);
+  assert.ok(!libraryGovernedKeys(lib).has(del), "not governed either, so the Rates modal keeps it editable");
+  assert.deepEqual(pendingRateUpdates({ x: { unitCost: 1 } }, { formworkLegacy: { "No Such Product": { cost: 5 } } }, {}), [], "an unmatched name is ignored");
+});
+check("Rates Library rules: governed keys are exactly the matched, non-excluded products", () => {
+  const lib = { formworkLegacy: { Conventional: { cost: 150 } }, reinfAcc: { "Delivery fee": { cost: 300 } } };
+  const g = libraryGovernedKeys(lib);
+  assert.ok(g.has(rateKey("FORMWORK", "Conventional", "m2")) && g.size === 1);
 });
 
 console.log(`\n${passed} check(s) passed.`);

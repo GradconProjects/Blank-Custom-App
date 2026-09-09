@@ -4,7 +4,7 @@ import { money2, labourResourceRate, taskRowMeta, rateKey } from "../lib/costing
 import { NumInput } from "./atoms.jsx";
 
 /**
- * The crew-sheet labour table, laid out exactly like the paper crew sheet:
+ * The crew-sheet labour table, laid out exactly like BOMA's paper sheet:
  *   # | Task | Qty | Unit | Concrete Crew (3+) | Steel Crew (3+) |
  *   General Labour Crew (3+) | Excavator | Bobcat | Pump hr | Pump m³ |
  *   Crane | Factory | Notes  — with TOTAL / RATE / COST footer rows.

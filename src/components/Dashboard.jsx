@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, ArrowRight, LayoutDashboard, Loader2 } from "lucide-react";
+import { Plus, Trash2, ArrowRight, LayoutDashboard, Loader2, FolderOpen } from "lucide-react";
 import { QUOTE_STATUSES, QUOTE_STATUS_STYLES } from "../data/catalog.js";
 import { computeGrandTotal, computeMarginLadder, money, getDefaultMargin, getMarginSteps } from "../lib/costing.js";
-import { readQuotes, writeQuote } from "../lib/projects.js";
+import { readQuotes, readQuotesCached, writeQuote } from "../lib/projects.js";
 import { dashboardDueLabel } from "../lib/planner.js";
 
 const SORT_OPTIONS = [
@@ -34,7 +34,10 @@ function summarizeQuote(quote, rates) {
     name: quote.projectName || "Untitled project",
     client: quote.clientName || "",
     date: quote.projectDate,
-    status: quote.status || QUOTE_STATUSES[0],
+    // Only a status the style table knows: the rows below index
+    // QUOTE_STATUS_STYLES by this value, and one stale/renamed status in any
+    // single quote would otherwise take the whole dashboard down.
+    status: QUOTE_STATUSES.includes(quote.status) ? quote.status : QUOTE_STATUSES[0],
     deadline: quote.planner?.deadline || null,
     gfa: Number(quote.gfa) || 0,
     elementCount: items.length,
@@ -54,8 +57,11 @@ function StatTile({ label, value, highlight }) {
   );
 }
 
-export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete }) {
-  const [quotesByKey, setQuotesByKey] = useState({});
+export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete, onImportFile, onPrune }) {
+  // First paint comes from the last-known summary mirror (instant), then the
+  // effect below replaces it with what the database actually holds. An
+  // install without a mirror yet starts empty exactly as before.
+  const [quotesByKey, setQuotesByKey] = useState(() => readQuotesCached(projects.map((p) => p.storageKey)));
   const [loading, setLoading] = useState(true);
   // Two-click "arm, then confirm" delete instead of window.confirm() — a
   // native confirm() dialog can be silently blocked (throws or is a no-op)
@@ -81,6 +87,20 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
       if (cancelled) return;
       setQuotesByKey(map);
       setLoading(false);
+      // An index entry whose data row does not exist is an "Untitled
+      // project" that can never be opened or edited — a project whose first
+      // save never landed, or a delete that only half-completed. Drop it.
+      // Only when the fetch plainly succeeded (it returned at least one
+      // quote): an empty map is also what a failed fetch looks like, and
+      // that must never prune anything. A brand-new entry is left alone
+      // for an hour so a slow first save cannot be mistaken for an orphan.
+      if (onPrune && Object.keys(map).length > 0) {
+        const cutoff = Date.now() - 60 * 60 * 1000;
+        const orphans = projects
+          .filter((p) => !map[p.storageKey] && Date.parse(p.createdAt || 0) < cutoff)
+          .map((p) => p.id);
+        if (orphans.length) onPrune(orphans);
+      }
     });
     return () => {
       cancelled = true;
@@ -134,6 +154,19 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
     );
   }, [sortedSummaries, statusFilter, search]);
   const filtering = !!statusFilter || !!search.trim();
+  // One count per status, off the SEARCHED set rather than the fully filtered
+  // one — so the buttons show how many projects each status would give you
+  // right now, and a status with none reads as 0 instead of vanishing.
+  const statusCounts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const searched = sortedSummaries.filter(
+      (s) => !q || s.name.toLowerCase().includes(q) || s.client.toLowerCase().includes(q)
+    );
+    const counts = { "": searched.length };
+    QUOTE_STATUSES.forEach((st) => { counts[st] = 0; });
+    searched.forEach((s) => { counts[s.status] = (counts[s.status] || 0) + 1; });
+    return counts;
+  }, [sortedSummaries, search]);
 
   const changeStatus = (project, status) => {
     const quote = quotesByKey[project.storageKey] || {};
@@ -174,7 +207,7 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
           <h1 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
             <LayoutDashboard size={20} className="text-orange-500" /> Projects Dashboard
           </h1>
-          <p className="text-sm text-neutral-500">Every quote, summed across the whole portfolio.</p>
+          <p className="text-sm text-neutral-500">Every BOMA quote, summed across the whole portfolio.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <input
@@ -183,19 +216,6 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
             placeholder="Search projects / clients…"
             className="border border-neutral-200 rounded px-2.5 py-1.5 text-xs w-44 focus:outline-none focus:ring-2 focus:ring-orange-400"
           />
-          <div className="flex items-center gap-1.5 text-xs text-neutral-500">
-            <span>Status:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="border border-neutral-200 rounded px-2 py-1 text-xs"
-            >
-              <option value="">All statuses</option>
-              {QUOTE_STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
           <div className="flex items-center gap-1.5 text-xs text-neutral-500">
             <span>Sort by:</span>
             <select
@@ -208,6 +228,25 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
               ))}
             </select>
           </div>
+          {onImportFile && (
+            <label
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-700 text-sm font-medium transition-colors cursor-pointer"
+              title="Open a quote saved with “Save to computer” or downloaded from a project's Versions"
+            >
+              <FolderOpen size={16} /> Open .json
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files && e.target.files[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  file.text().then((text) => onImportFile(text, file.name));
+                }}
+              />
+            </label>
+          )}
           <button
             onClick={onCreate}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-950 hover:bg-blue-900 text-white text-sm font-medium transition-colors"
@@ -215,6 +254,54 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
             <Plus size={16} /> New project
           </button>
         </div>
+      </div>
+
+      {/* Status filter tiles — one per status plus All projects. Each tile is
+          FILLED with its status's own solid colour (the same `bar` shade the
+          row dots use), not a white chip with coloured text, so the row reads
+          as the pipeline at a glance. The count is the tile's headline.
+          Clicking one filters the table below to just those projects;
+          clicking the active one again clears back to all. The active tile is
+          marked by a dark ring and shadow rather than by a colour change —
+          colour is spoken for by the status itself. */}
+      <div className="flex flex-wrap gap-2">
+        {[["", "All projects"], ...QUOTE_STATUSES.map((s2) => [s2, s2])].map(([value, label]) => {
+          const active = statusFilter === value;
+          // "All projects" has no catalog status colour — give it the app's
+          // own navy so the row reads as one set rather than one odd tile.
+          const style = QUOTE_STATUS_STYLES[value] || {
+            bar: "bg-blue-950", dot: "bg-blue-950", text: "text-blue-900", bg: "bg-blue-50",
+          };
+          // Every status bar is dark enough to carry white text except On
+          // Hold's deliberately washed-out neutral — that one needs dark ink.
+          const light = style.bar === "bg-neutral-300";
+          const ink = light ? "text-neutral-800" : "text-white";
+          const count = statusCounts[value] || 0;
+          return (
+            <button
+              key={value || "__all"}
+              onClick={() => setStatusFilter(active ? "" : value)}
+              aria-pressed={active}
+              title={`${label} — ${count} project${count === 1 ? "" : "s"}`}
+              className={`relative overflow-hidden flex-1 min-w-[112px] max-w-[168px] min-h-[92px] rounded-xl border border-transparent flex flex-col items-center justify-center gap-1.5 px-3 py-3 transition-all ${style.bar} ${ink} ${
+                active
+                  ? "shadow-lg ring-2 ring-offset-2 ring-blue-950 scale-[1.03]"
+                  : `shadow-sm hover:brightness-110 hover:shadow-md ${count === 0 ? "opacity-50" : ""}`
+              }`}
+            >
+              {/* a soft wash behind the count, so the headline number reads as
+                  a badge rather than floating on the flat fill */}
+              <span
+                className={`inline-flex items-center justify-center min-w-[2.25rem] px-2 py-0.5 rounded-lg font-mono tabular-nums text-2xl font-bold leading-none ${
+                  light ? "bg-white/70" : "bg-black/20"
+                }`}
+              >
+                {count}
+              </span>
+              <span className="text-[11px] font-semibold leading-tight text-center">{label}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -21,7 +21,7 @@ header{background:linear-gradient(135deg,var(--navy) 0%,var(--navy2) 100%);color
 #saveBtn:hover{opacity:.9;}
 .header-brand{display:flex;align-items:center;gap:14px;}
 .logo-badge{background:#fff;border-radius:8px;padding:6px 12px;box-shadow:0 1px 4px rgba(0,0,0,.25);display:flex;align-items:center;}
-.logo-badge img{height:34px;display:block;}
+.logo-badge img{height:48px;display:block;}
 header h1{margin:0;font-size:17px;letter-spacing:.02em;font-weight:600;color:#dcebf6;}
 header .subtitle{font-size:11.5px;opacity:.85;max-width:540px;text-align:right;}
 #tabnav{display:flex;gap:2px;background:#0c2438;padding:0 18px;overflow-x:auto;}
@@ -126,7 +126,7 @@ input:disabled{background:#f0f4f7;color:#7c8a96;}
 .boq-toolbar{margin-bottom:14px;}
 .boq-report{background:#fff;border:1px solid var(--border);border-radius:8px;padding:20px 24px;max-width:1000px;}
 .boq-header h2{margin:0 0 12px 0;}
-.boq-logo{height:44px;display:block;margin-bottom:14px;}
+.boq-logo{height:72px;display:block;margin-bottom:14px;}
 .boq-meta{margin-bottom:18px;}
 .boq-meta td:first-child{color:#5a7186;width:110px;}
 .boq-meta td{border:none;padding:2px 6px;}
@@ -217,32 +217,14 @@ tr.row-outofscope input, tr.row-outofscope select{background:#eef0f2;color:#9aa5
     <span id="saveStatus" class="save-status">All changes saved automatically</span>
     <button id="saveBtn" type="button">💾 Save</button>
   </div>
-  <span class="subtitle">Rates lead from BOMA ESTIMATES' own established real supplier pricing (AKZ Reinforcing, Holcim) — not escalated — maintained centrally in the Rates Library app and applied here automatically. Standard-format BOQ, Resource Schedule, Cost Control, Project Scope, and CSV takeoffimport.</span>
+  <span class="subtitle">Rates lead from BOMA's own established real supplier pricing (AKZ Reinforcing, Holcim) — not escalated — maintained centrally in the Rates Library app and applied here automatically. Standard-format BOQ, Resource Schedule, Cost Control, Project Scope, and CSV takeoffimport.</span>
 </header>
 <nav id="tabnav"></nav>
 <div id="main"></div>
 <script>
-(function migrateLegacyKeys(){
-  // Carry saved work across from the app's previous key prefix
-  // ("gradcon-" -> "boma-"). Never overwrites a key that already exists, so
-  // it is a no-op on every boot after the first. Mirrors src/lib/legacyKeys.js.
-  try{
-    Object.keys(window.localStorage)
-      .filter(function(k){ return k.indexOf('gradcon-') === 0; })
-      .forEach(function(legacy){
-        var key = 'boma-' + legacy.slice(8);
-        try{
-          if(window.localStorage.getItem(key) !== null) return;
-          var v = window.localStorage.getItem(legacy);
-          if(v !== null) window.localStorage.setItem(key, v);
-        }catch(e){}
-      });
-  }catch(e){}
-})();
-
 /* =========================================================================
-   COST PLANNER — data model
-   Concrete, Reinforcement (mesh/bar) and Formwork rates lead from BOMA ESTIMATES'
+   BOMA DASHBOARD — data model
+   Concrete, Reinforcement (mesh/bar) and Formwork rates lead from BOMA's
    own established Quotes/Estimates catalog (src/data/catalog.js) — real
    supplier pricing, not escalated. Structural rates without a Quotes
    equivalent, plus everything on the BCI Reference Rates tab (excavation,
@@ -262,7 +244,7 @@ const GLOBAL = {
   wasteSteelMesh: 0.05, wasteSteelBar: 0.08, wasteSteelProcessed: 0.03,
   wasteConcrete: 0.03, wasteFormwork: 0.10, wasteGeneral: 0.05,
   overheadsPct: 0.12, marginPct: 0.15, subbieMarginPct: 0.12,
-  // Escalation defaults to 0% — BOMA ESTIMATES' own established rates (below,
+  // Escalation defaults to 0% — BOMA's own established rates (below,
   // sourced from the Quotes/Estimates catalog) lead instead of an escalated
   // BCI/Rawlinsons benchmark. Still fully editable here if a forward
   // escalation is ever wanted again for a specific tender.
@@ -288,7 +270,7 @@ const GLOBAL = {
 // instead of these cards. Trench Mesh is covered too except the couple of sizes
 // with no Quotes equivalent. So Mesh/Bar are fallback-only now — they only actually
 // drive a rate for those few uncovered Trench Mesh sizes. Processed is set to
-// BOMA ESTIMATES' established $/t so it agrees with the (identical) per-product rate below.
+// BOMA's established $/t so it agrees with the (identical) per-product rate below.
 const STEEL_BUILDUPS = {
   Mesh: { label:"Mesh — fallback only (Trench Mesh sizes with no established match)", baseRateBCI:1550 /* blended from F52-F118 $/t equivalent */,
           delivery:45, consumables:35, fixingLabourHrsPerT:5.5, waste:GLOBAL.wasteSteelMesh,
@@ -298,15 +280,15 @@ const STEEL_BUILDUPS = {
           source:"BCI Melb: Structural round bar $3,530/t; Deformed bar $3,530/t (installed, June 2025) — fallback only, see note above" },
   Processed: { label:"Processed / Prefabricated Bar — fallback only (every diameter below has its own established Base Rate)", baseRateBCI:1925,
           delivery:0, consumables:0, fixingLabourHrsPerT:0, waste:0,
-          source:"AKZ Reinforcing's real current supply rate — $1925/t (AKZ_Supply_July_010726, 1 July 2026) — at the time each product below was seeded; edit each product's own Base Rate below to change it, this card is fallback only" },
+          source:"AKZ Reinforcing's real current BOMA rate — $1925/t (Supplier_Supply_Schedule, 1 July 2026) — at the time each product below was seeded; edit each product's own Base Rate below to change it, this card is fallback only" },
 };
 // NOTE: BCI reinforcement rates are already ALL-IN (supply+fix+bending+tying+supports).
 // The buildup below treats baseRateBCI as material+labour combined (fixingLabourHrsPerT
 // left at 0 for Bar/Processed since BCI already includes it); wastage/delivery/consumables
 // remain separately editable on top.
 
-// ---- BOMA ESTIMATES' own established rates (from the Quotes/Estimates catalog, src/data/catalog.js) ----
-// These are the LEADING rates for reinforcement: real BOMA ESTIMATES supplier pricing per
+// ---- BOMA's own established rates (from the Quotes/Estimates catalog, src/data/catalog.js) ----
+// These are the LEADING rates for reinforcement: real BOMA supplier pricing per
 // product, not a blended BCI/Rawlinsons benchmark. Where an exact product match exists
 // here, computeReinforcementRate() uses it directly instead of the escalated $/t buildup
 // above — same product-by-product confidence rule the Estimates→Quotes bridge already
@@ -317,8 +299,8 @@ const BOMA_TRENCH_MESH_RATES = {
   "3 Bar-L12TM":30.07, "4 Bar-L12TM":41.19, "5 Bar-L12TM":50.66, "6 Bar-L12TM":61.84,
   "3 Bar-L16TM":91.08, "4 Bar-L16TM":92.89,
 }; // $/length. "7 bar-L12TM"/"3 bar-L15TM"/"4 bar-L15TM" have no Quotes catalog match — left on the BCI buildup.
-// SL62/72/82/92/102/81 sourced from AKZ Reinforcing's actual current supply
-// quote (AKZ_Supply_July_010726, dated 1 July 2026) — real current rates, not
+// SL62/72/82/92/102/81 sourced from AKZ Reinforcing's actual current BOMA supply
+// quote (Supplier_Supply_Schedule, dated 1 July 2026) — real current rates, not
 // escalated. SL52 and the RL series aren't on that quote, so they keep the earlier
 // figure until a real quote for those sizes is available.
 const BOMA_SQUARE_MESH_RATES = {
@@ -329,7 +311,7 @@ const BOMA_STOCK_BAR_RATES = {
   "N12 - 6.0m length":10, "N16 - 6.0m length":17.51, "N20 - 6.0m length":27.76,
   "N24 - 6.0m length":38.68, "N28 - 6.0m length":57.9, "N32 - 6.0m length":70.86,
 }; // $/bar
-const BOMA_PROCESSED_BAR_RATE_PER_TONNE = 1925; // $/t — AKZ Reinforcing's "PROCESSED STEEL" line, AKZ_Supply_July_010726 (1 July 2026), uniform across every diameter
+const BOMA_PROCESSED_BAR_RATE_PER_TONNE = 1925; // $/t — AKZ Reinforcing's "PROCESSED STEEL" line, Supplier_Supply_Schedule (1 July 2026), uniform across every diameter
 
 const REINFORCEMENT_ITEMS = {
   "Trench mesh": { buildup:"Mesh", items:[
@@ -361,9 +343,9 @@ const REINFORCEMENT_ITEMS = {
     {p:"N32",u:"m",w:6.468},{p:"N36",u:"m",w:8.19},{p:"N40",u:"m",w:10.107},
   ]},
 };
-// Established BOMA ESTIMATES rates — identical product list to the Quotes/Estimates
+// Established BOMA rates — identical product list to the Quotes/Estimates
 // REINFORCING ACCESSORIES catalog.
-// Real current AKZ Reinforcing rates (AKZ_Accessories_1/2, 1 July 2026) applied
+// Real current AKZ Reinforcing rates (BOMA_Accessories_1/2, 1 July 2026) applied
 // wherever the product code matches confidently. "Delivery fee" $300 independently
 // confirmed by AKZ's quoted standard transport cost ($300/load) on the same supply
 // quote. Poly and Abelflex are NOT updated — AKZ's sheet lists ".2mm PVC"/generic
@@ -379,7 +361,7 @@ const REINFORCING_ACCESSORIES = [
   {p:"BP1.6 Tie wire",u:"roll",cost:4.8},
 ];
 
-// ---- CONCRETE: by pour type. Supply rates lead from BOMA ESTIMATES' own established
+// ---- CONCRETE: by pour type. Supply rates lead from BOMA's own established
 // Quotes/Estimates catalog (assuming a typical grade per pour type — tagged below),
 // not the BCI benchmark. "Extra per N5 grade" and Shotcrete have no established
 // equivalent in Quotes (a differential and an earth-stabilising spray respectively,
@@ -398,7 +380,7 @@ const CONCRETE_ITEMS = [
 ];
 const CONCRETE_LABOUR = { placingHrsPerM3:0.55, finishingHrsPerM3:0.35, curingRate:6, testingRate:9 };
 
-// ---- FORMWORK: by position. Material rates lead from BOMA ESTIMATES' own established
+// ---- FORMWORK: by position. Material rates lead from BOMA's own established
 // Quotes/Estimates catalog wherever the item is genuinely the same product (Walls,
 // Beams >400mm, both Bondek thicknesses — Quotes doesn't split by thickness). Footings/
 // suspended slabs/stairs/columns/Class-2 finish have no confident same-unit Quotes
@@ -458,11 +440,11 @@ const BCI_REFERENCE = [
 ];
 
 // ---- CONCRETE SUPPLY BY GRADE (from your original template — supply-only, no placing labour) ----
-// Established BOMA ESTIMATES rates — identical product list to the Quotes/Estimates CONCRETE
+// Established BOMA rates — identical product list to the Quotes/Estimates CONCRETE
 // catalog (src/data/catalog.js), kept in sync here rather than carrying a separately
 // escalated copy. Edit in the Quotes Rates modal (or here) — either stays the source of
 // truth for this exact same product.
-// Real current Holcim rates ex GST (Holcim_Melb_Metro_Peninsula_Quote, quote 00025199,
+// Real current Holcim rates ex GST (BOMA_Melb_Metro_Peninsula_Quote, quote 00025199,
 // fixed until 30/06/2026) applied wherever the product code confidently matches — plain
 // N-grades and the Agilia range. "Exposed Agg", the Holcim service fees and "Penetron"
 // have no confident single-SKU match in Holcim's quote (dozens of named exposed
@@ -489,7 +471,7 @@ const CONCRETE_GRADE_ITEMS = [
 ];
 
 // ---- FORMWORK — legacy items from your original template not covered by the BCI position-based set.
-// Established BOMA ESTIMATES rates — identical product list to the Quotes/Estimates FORMWORK catalog. ----
+// Established BOMA rates — identical product list to the Quotes/Estimates FORMWORK catalog. ----
 const FORMWORK_LEGACY_ITEMS = [
   {p:"Material",u:"unit",cost:400},
   {p:"Conventional",u:"m2",cost:150,note:"<3.5m $150, >3.5m $200"},
@@ -1039,7 +1021,7 @@ window.addEventListener("storage", (e)=>{
  * Estimates tool writes to on every "Publish to Quote & Cost Planner" click
  * (see publishToQuote() in that app) — and turns each not-yet-seen entry
  * into a project here, with its BOQ pre-selected wherever the match to a
- * BOMA ESTIMATES catalog product is unambiguous. Same conservative rule the
+ * BOMA catalog product is unambiguous. Same conservative rule the
  * Estimates→Quotes bridge already uses (lib/estimateImport.js): only map
  * what's confident (concrete by grade, trench/square mesh and stock/
  * processed bar by exact product, wall formwork), flag everything else
@@ -1103,7 +1085,7 @@ function importPublishedEstimates(){
     });
     const proj = state.projects[key];
     if(existingProj){
-      // Preserve anything the estimator may have edited directly on this project (scope,
+      // Preserve anything Grady may have edited directly on this project (scope,
       // GFA, prelim/contingency %, etc.) across a re-sync — only the BOQ selection
       // and flags are rebuilt from the fresh Estimates data.
       Object.assign(proj, existingProj, { boq:{}, importFlags:[] });
@@ -1191,14 +1173,14 @@ window.addEventListener("storage", (e)=>{
 // if nothing's there yet), then re-runs the same import so a project published on
 // another computer shows up here without a manual refresh.
 /* Quotes has no generic "quantity lines" the way Estimates does — a Quotes project is
- * priced straight off BOMA ESTIMATES' own catalog SKUs, not a takeoff — so there's no BOQ
+ * priced straight off BOMA's own catalog SKUs, not a takeoff — so there's no BOQ
  * mapping to attempt here (unlike importPublishedEstimates() above). This just makes
  * sure a project started in Quotes shows up in Cost Planner's project list under the
  * same name/GFA without re-typing it, same "auto-populate, don't force a re-entry"
  * idea, scoped to what's actually safe to copy across automatically. Re-publishing the
  * same Quotes project (matched by its own project id) updates that one Cost Planner
  * project's name/GFA in place rather than spawning a duplicate. */
-// Quotes and Cost Planner share the same real BOMA ESTIMATES catalog under the hood (reo by
+// Quotes and Cost Planner share the same real BOMA catalog under the hood (reo by
 // group+diameter, concrete by grade, formwork/rate-items/accessories by product name)
 // — this maps each Quotes FULL_CATALOG category to the matching Cost Planner BOQ
 // "kind" (see buildMasterBOQCatalog above) so a published line can be matched straight
@@ -1902,7 +1884,7 @@ function importTakeoffRows(proj, rows){
 
 let activeTab = "Home";
 // Rate build-up tabs (Steel/Concrete/Formwork/Rate Items/BCI Reference) moved out
-// to their own app — portal/rates-library.html — to keep rate
+// to their own app — portal/rates-library.html — per Grady's request to keep rate
 // editing in one dedicated place rather than duplicated inside Cost Planner. This
 // app still COMPUTES with those rates (see applySharedRatesLibrary above), it just
 // no longer has its own editable UI for them.
@@ -2202,7 +2184,7 @@ function renderProjects(){
   }
   if(proj.source==="estimates" && proj.importFlags && proj.importFlags.length){
     h += `<div class="panel-block" style="border-color:#d9a441;background:#fdf6e8;"><h3>⚑ Imported from Estimates — needs a look</h3>
-    <p class="hint">Quantities without a confident match to a BOMA ESTIMATES BOQ product weren't guessed — check these on the Project BOQ tab and add them manually:</p>
+    <p class="hint">Quantities without a confident match to a BOMA BOQ product weren't guessed — check these on the Project BOQ tab and add them manually:</p>
     <ul style="margin:0;padding-left:18px;font-size:12px;color:#5a4a1e;">${proj.importFlags.map(f=>`<li>${f}</li>`).join("")}</ul>
     </div>`;
   }
@@ -2306,7 +2288,7 @@ function submitNewProject(){
 // ---------- STEEL ----------
 function renderSteel(){
   let h = `<h2>Steel Reinforcement Rate Build-Up</h2>
-  <p class="hint">Trench Mesh, Square Mesh, Stock Bar and Processed Bar (tagged <span class="tag">established</span> below) are priced straight off BOMA ESTIMATES' own established Quotes/Estimates catalog rates, then Overheads/Margin are layered on top — no escalation. Anything without a catalog match falls back to the BCI Melbourne buildup (Rawlinsons 2025 Ed.43, June 2025): Mesh blended from F52-F118 fabric $/m² series, Bar/Processed from the $3,530/t structural & deformed bar line — escalated via the factors below (0% by default), then wastage/delivery/consumables/labour and Overheads/Margin are layered on top.</p>
+  <p class="hint">Trench Mesh, Square Mesh, Stock Bar and Processed Bar (tagged <span class="tag">established</span> below) are priced straight off BOMA's own established Quotes/Estimates catalog rates, then Overheads/Margin are layered on top — no escalation. Anything without a catalog match falls back to the BCI Melbourne buildup (Rawlinsons 2025 Ed.43, June 2025): Mesh blended from F52-F118 fabric $/m² series, Bar/Processed from the $3,530/t structural & deformed bar line — escalated via the factors below (0% by default), then wastage/delivery/consumables/labour and Overheads/Margin are layered on top.</p>
   <div class="panel-block"><h3>Escalation (applies dashboard-wide)</h3>
   <table class="kv-table"><tbody>
     <tr><td>2025 escalation % (from BCI June 2025 base)</td><td><input type="number" step="any" id="esc25" value="${(state.global.escalation2025Pct*100).toFixed(1)}"></td></tr>
@@ -2339,7 +2321,7 @@ function renderSteel(){
   Object.keys(REINFORCEMENT_ITEMS).forEach(group=>{
     const g = REINFORCEMENT_ITEMS[group];
     h += `<div class="panel-block"><h3>${group}</h3>
-    <p class="note" style="margin:-4px 0 8px">Base Rate is BOMA ESTIMATES' established $/unit — fully editable, feeds Sell Rate via Overheads/Margin. A blank Base Rate means no established match exists for that product; it falls back to the ${STEEL_BUILDUPS[g.buildup].label.split(" (")[0]} buildup card above instead.</p>
+    <p class="note" style="margin:-4px 0 8px">Base Rate is BOMA's established $/unit — fully editable, feeds Sell Rate via Overheads/Margin. A blank Base Rate means no established match exists for that product; it falls back to the ${STEEL_BUILDUPS[g.buildup].label.split(" (")[0]} buildup card above instead.</p>
     <table class="item-table"><thead><tr><th>Product</th><th>Unit</th><th>Weight (kg)</th><th>Base Rate ($/unit)</th><th>Sell Rate ($/unit)</th></tr></thead><tbody>`;
     g.items.forEach(it=>{
       const r = computeReinforcementRate(group, it);
@@ -2393,7 +2375,7 @@ function renderSteel(){
 // ---------- CONCRETE ----------
 function renderConcrete(){
   let h = `<h2>Concrete Rate Build-Up</h2>
-  <p class="hint">Base supply rates are BCI Melbourne (June 2025) by pour type (excludes reinforcement & pump per BCI convention) — escalation defaults to 0% (editable on the Steel tab, applies dashboard-wide), then pump allocation, placing/finishing labour, curing and testing are added, then Overheads % and Margin %. For BOMA ESTIMATES' own established supply rate by concrete grade instead of pour type, see "Concrete Supply (by grade)" on the Rate Items / BOQ tabs — sourced straight from the Quotes/Estimates catalog.</p>
+  <p class="hint">Base supply rates are BCI Melbourne (June 2025) by pour type (excludes reinforcement & pump per BCI convention) — escalation defaults to 0% (editable on the Steel tab, applies dashboard-wide), then pump allocation, placing/finishing labour, curing and testing are added, then Overheads % and Margin %. For BOMA's own established supply rate by concrete grade instead of pour type, see "Concrete Supply (by grade)" on the Rate Items / BOQ tabs — sourced straight from the Quotes/Estimates catalog.</p>
   <div class="panel-block"><h3>Shared labour / plant assumptions</h3>
   <table class="kv-table"><tbody>
     <tr><td>Placing labour (hrs/m3)</td><td><input type="number" step="any" id="cl_placing" value="${state.concreteLabour.placingHrsPerM3}"></td></tr>
@@ -2433,7 +2415,7 @@ function renderConcrete(){
 // ---------- FORMWORK ----------
 function renderFormwork(){
   let h = `<h2>Formwork Rate Build-Up</h2>
-  <p class="hint">Base rates are BCI Melbourne (June 2025) — escalation defaults to 0% (editable on the Steel tab, applies dashboard-wide), then fix labour + strip labour, then Overheads % and Margin %. For BOMA ESTIMATES' own established formwork rates, see the "Formwork (general)" set on the Rate Items / BOQ tabs — sourced straight from the Quotes/Estimates catalog.</p>
+  <p class="hint">Base rates are BCI Melbourne (June 2025) — escalation defaults to 0% (editable on the Steel tab, applies dashboard-wide), then fix labour + strip labour, then Overheads % and Margin %. For BOMA's own established formwork rates, see the "Formwork (general)" set on the Rate Items / BOQ tabs — sourced straight from the Quotes/Estimates catalog.</p>
   <table class="item-table"><thead><tr><th>Type</th><th>Unit</th><th>BCI Material ($, base)</th><th>Escalated</th><th>Fix (hrs)</th><th>Strip (hrs)</th><th>Fix $</th><th>Strip $</th><th>Net</th><th>Sell Rate</th></tr></thead><tbody>`;
   FORMWORK_ITEMS.forEach(it=>{
     const r = computeFormworkRate(it.p);
@@ -2753,7 +2735,7 @@ function renderProjectBOQ(){
   </div>
   <div class="boq-report">
     <div class="boq-header">
-      <img src="${LOGO_DATA_URI}" class="boq-logo" alt="BOMA ESTIMATES">
+      <img src="${LOGO_DATA_URI}" class="boq-logo" alt="BOMA">
       <h2>Bill of Quantities</h2>
       <table class="boq-meta"><tbody>
         <tr><td>Project</td><td>${proj.name}</td></tr>

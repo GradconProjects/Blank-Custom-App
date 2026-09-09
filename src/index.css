@@ -12,9 +12,11 @@ body {
 @media print {
   @page {
     size: A4;
-    /* Wider left/right margin than top/bottom, matching Cost Planner's own
-       PDF export — the report otherwise reads edge-to-edge on the page. */
-    margin: 14mm 24mm;
+    /* One margin all round (25 mm, the standard 1-inch document margin) for
+       every Quotes print/PDF export — the tender quotation, the external
+       quote and the internal report alike. Equal width and height by
+       request: the earlier 14mm/24mm split read as narrow at the sides. */
+    margin: 25mm;
   }
   body {
     background: white;

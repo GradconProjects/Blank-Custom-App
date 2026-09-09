@@ -1,8 +1,9 @@
 /**
  * Standard boilerplate + seeding for the Tender Quote (see components/
- * TenderQuoteReport.jsx) — the full standard wording of a subcontractor
- * concrete tender quotation, laid out section for section the way a real
- * one reads. These are only DEFAULTS: once seeded they live in
+ * TenderQuoteReport.jsx) — a direct copy of BOMA's real quotation
+ * document (7 Double Creek Road, Flinders — QUOTATION Rev.1), transcribed
+ * verbatim so the seeded text is BOMA's actual known-good standard
+ * wording. These are only DEFAULTS: once seeded they live in
  * quote.tenderQuote and every field is freely editable per project.
  *
  * Line items are seeded from the project's own elements — the price from
@@ -31,7 +32,7 @@ export const TENDER_SPECIFIC_EXCLUSIONS = [
   "This quotation does not include removal of spoil or loading of trucks. Builder is to ensure the removal of spoil is carried out at such time as not to impede progress. (Refer 'Additional Options' above.)",
   "Dewatering has not been allowed for in this quotation. Builder is to ensure any dewatering is carried out as soon as practically possible to allow continuation of works.",
   "Insulation to slab beam sides is not included.",
-  "Supply and placement of cast in plates is excluded from this quotation. BOMA ESTIMATES will assist in the placement as required.",
+  "Supply and placement of cast in plates is excluded from this quotation. BOMA will assist in the placement as required.",
 ].join("\n");
 
 export const TENDER_GENERAL_EXCLUSIONS = [
@@ -86,16 +87,16 @@ export const TENDER_CONTRACTUAL_CONDITIONS = `1) Allowances:
 
 3) Safety:
    a. Safety Caps:
-      Safety Caps will be provided by BOMA ESTIMATES for all bars posing as hazardous. Caps are to be stored onsite and will be collected once their use is complete. Please advise if and when there are not required.
+      Safety Caps will be provided by BOMA for all bars posing as hazardous. Caps are to be stored onsite and will be collected once their use is complete. Please advise if and when there are not required.
    b. Handrails:
-      Safety handrails associated with formwork will be supplied by BOMA ESTIMATES - Note these temporary handrails will be removed once BOMA ESTIMATES' works have been completed.
+      Safety handrails associated with formwork will be supplied by BOMA - Note these temporary handrails will be removed once BOMA's works have been completed.
    c. Deep Excavation:
-      BOMA ESTIMATES has no allowances for safety barriers or shoring associated with deep excavation.
+      BOMA has no allowances for safety barriers or shoring associated with deep excavation.
    d. Other:
       Refer to OHS/Insurances section of quotation for other particulars.
 
 4) Site conditions:
-   a. Builder is to ensure BOMA ESTIMATES is provided with updated drawings immediately they are issued.
+   a. Builder is to ensure BOMA is provided with updated drawings immediately they are issued.
    b. Builder to ensure a suitable access is available for vehicles (crushed rock road base or similar).
    c. Builder to ensure that the site has a toilet.
    d. Builder to ensure that the site has power available.
@@ -106,7 +107,7 @@ export const TENDER_CONTRACTUAL_CONDITIONS = `1) Allowances:
    i. Water Control - The builder is, to the best of their ability, to provide a site that assists with surface water control (i.e. cut off drains).
 
 5) Building & Construction Industry Security of Payment Act 2002:
-   a. At BOMA ESTIMATES' sole discretion, if there are any disputes or claims for unpaid Services, the provisions of the Building and Construction Industry Security of Payment Act 2002 may apply.
+   a. At BOMA's sole discretion, if there are any disputes or claims for unpaid Services, the provisions of the Building and Construction Industry Security of Payment Act 2002 may apply.
    b. Nothing in this agreement is intended to have the effect of contracting out of any applicable provisions of the Building and Construction Industry Security of Payment Act 2002 of Victoria, except to the extent permitted by the Act where applicable.
 
 6) Quote Conditions:
@@ -152,7 +153,17 @@ export function seedTenderItems(quote, items, rates) {
     let name = item.label || "Element";
     if (m) name = name.slice(m[0].length).replace(/^[\s\-–:]+/, "") || name;
     const figs = [];
-    if (lq.finishM2 > 0) figs.push(`approx. ${fmt(lq.finishM2)} m²`);
+    // The area a tender quotes against is the FLOOR AREA the estimator
+    // entered against that element in the Quotes section (the Project
+    // Geometry table's "Total area (m²)", item.measureM2) — the same figure
+    // its $/m² benchmark divides by. It is NOT the Square Mesh coverage in
+    // lq.finishM2: on a raft two layers of mesh over one floor is twice the
+    // area, and mesh often covers only part of a slab, so quoting the mesh
+    // m² prints a floor area the client can't reconcile with the drawing.
+    // finishM2 stays the fallback for an element nobody has measured yet
+    // (and stays untouched as the finishing crew-day driver in costing.js).
+    const areaM2 = Number(item.measureM2) > 0 ? Number(item.measureM2) : lq.finishM2;
+    if (areaM2 > 0) figs.push(`approx. ${fmt(areaM2)} m²`);
     if (cost.concreteQty > 0) figs.push(`approx. ${fmt(cost.concreteQty)} m³ concrete`);
     if (!figs.length && lq.formworkM2 > 0) figs.push(`approx. ${fmt(lq.formworkM2)} m² formwork`);
     if (!figs.length && lq.reinfTonnes > 0.005) figs.push(`approx. ${fmt(lq.reinfTonnes)} t reinforcement`);
@@ -201,7 +212,7 @@ export const parseTenderPrice = (s) => {
  * too. A typed projectSumOverride replaces the items sum entirely (the
  * estimator's negotiated round figure); markup is an EXTRA document-level
  * markup entered as a whole % (10 = 10%) on top of prices that already
- * carry BOMA ESTIMATES' margin from the sell allocation, so it defaults OFF.
+ * carry BOMA's margin from the sell allocation, so it defaults OFF.
  * gstOn defaults ON (tenders normally print the GST and incl-GST lines);
  * legacy tenderQuote objects saved before these fields existed get the
  * same defaults via the `!== false` / falsy checks here. */
@@ -242,7 +253,7 @@ export function newTenderQuote() {
     specificExclusions: TENDER_SPECIFIC_EXCLUSIONS,
     generalExclusions: TENDER_GENERAL_EXCLUSIONS,
     contractualConditions: TENDER_CONTRACTUAL_CONDITIONS,
-    signatureName: "",
+    signatureName: "Grady Fink",
     signatureTitle: "Director",
   };
 }

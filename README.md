@@ -5,26 +5,11 @@ every quote you've started, each with a live-computed total and a
 portfolio-wide sum across all of them. Opening a project gives you the
 usual workbook-style editor: pick a structural element (earthworks,
 piling, footings, retention, slabs, suspended structure, pool, civil
-works — folded under broad categories) from a dropdown, the full
+works — folded under broad categories) from a dropdown, the full BOMA
 material, reinforcement, formwork and labour catalog for that element
 rolls out below it, fill in the quantities that apply, and everything
 rolls up live into a quote — element total → section subtotal → category
 subtotal → grand total → margin ladder with GST.
-
-## Usage metering
-
-The deployed portal has no login and no password — it opens straight into the
-app. Usage is metered server-side (`api/trial.js` + Supabase) and the portal
-locks on a `GET FULL VERSION` screen once a visitor's allowance is spent.
-
-The limits are enforced, never advertised: no screen a visitor sees states
-how many sessions or hours they get. The only indicator is a bare countdown
-of the current session, so nobody is cut off mid-edit without warning.
-`scripts/verify-portal-e2e.mjs` asserts that, so the wording can't creep back.
-
-See `CLAUDE.md` -> "Trial meter" for the actual numbers, how identity works,
-and where its limits honestly are. Run `npm run verify:trial` after touching
-`api/trial.js`.
 
 ## Running it
 

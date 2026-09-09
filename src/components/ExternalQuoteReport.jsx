@@ -1,13 +1,13 @@
 import { useRef } from "react";
 import { computeExternalScopeLines, money2, getDefaultMargin } from "../lib/costing.js";
-import { BOMA_LOGO_DATA_URI } from "../lib/logo.js";
+import { BOMA_LOGO_FULL_DATA_URI } from "../lib/logo.js";
 import { newExternalQuote } from "../lib/externalQuoteDefaults.js";
 
 /**
  * The client-facing quotation letter — deliberately separate from
  * PrintQuoteReport.jsx (renamed "Internal Quote" in the UI), which shows
- * the estimator's own cost/material/labour breakdown a client should never see.
- * This instead matches the shape of a real quotation letter: scope
+ * BOMA's own cost/material/labour breakdown a client should never see.
+ * This instead matches the shape of a real BOMA quotation letter: scope
  * items priced in lump sums, inclusions/exclusions, standard contractual
  * conditions, and a signature block.
  *
@@ -19,7 +19,7 @@ import { newExternalQuote } from "../lib/externalQuoteDefaults.js";
  * priced as that element's share of the actual sell price. Everything else
  * (attention, drawings, tender notes, inclusions, exclusions, contractual
  * conditions, signature) is plain free text the estimator edits per job,
- * seeded once from the standard letter wording (see
+ * seeded once from BOMA's real standard wording (see
  * lib/externalQuoteDefaults.js) the first time this is opened for a
  * project.
  *
@@ -172,7 +172,7 @@ function ReportContent({ quote, items, rates, eq }) {
     <>
       <div className="flex items-start justify-between border-b-2 border-black pb-2 mb-3">
         <div className="text-2xl font-bold tracking-wide">QUOTATION</div>
-        <img src={BOMA_LOGO_DATA_URI} alt="BOMA ESTIMATES" className="h-10" />
+        <img src={BOMA_LOGO_FULL_DATA_URI} alt="BOMA ESTIMATES" className="h-44" />
       </div>
 
       <div className="space-y-1 mb-3">

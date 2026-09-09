@@ -97,7 +97,7 @@ await page.waitForTimeout(1200);
   ok("...and it is a bare clock — no session count, no terms", !/session|trial|\/\s*5/i.test(pill));
   const head = (await page.locator("body").innerText()).toLowerCase();
   ok("nothing on the dashboard announces the preview terms",
-    !head.includes("trial session") && !head.includes("trial build") && !head.includes("5 hours"));
+    !head.includes("trial session") && !head.includes("trial build") && !head.includes("3 hours"));
 }
 ok("server recorded exactly one visitor, one session", rows.size === 1 && [...rows.values()][0].sessions_used === 1);
 await page.screenshot({ path: `${S}/shot2-boot.png` });
@@ -131,7 +131,7 @@ ok("a spent trial shows GET FULL VERSION",
   const shown = (await page.locator("body").innerText()).toLowerCase();
   ok("the lock screen states no terms (no session/hour counts)",
     !/\b5\s*\/\s*5\b/.test(shown) && !shown.includes("sessions used") &&
-    !shown.includes("trial time used") && !shown.includes("5 hours"));
+    !shown.includes("trial time used") && !shown.includes("3 hours"));
 }
 await page.screenshot({ path: `${S}/shot2-locked.png` });
 

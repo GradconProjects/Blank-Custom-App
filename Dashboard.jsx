@@ -94,7 +94,7 @@ export default function Dashboard({ projects, rates, onOpen, onCreate, onDelete 
           <h1 className="text-lg font-semibold text-neutral-900 flex items-center gap-2">
             <LayoutDashboard size={20} className="text-orange-500" /> Projects Dashboard
           </h1>
-          <p className="text-sm text-neutral-500">Every quote, summed across the whole portfolio.</p>
+          <p className="text-sm text-neutral-500">Every BOMA quote, summed across the whole portfolio.</p>
         </div>
         <button
           onClick={onCreate}

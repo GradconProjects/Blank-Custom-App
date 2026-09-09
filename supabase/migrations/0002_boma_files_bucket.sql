@@ -14,12 +14,6 @@
 -- it, and lib/storageFiles.js lists objects by prefix rather than relying on
 -- a separate folder record.
 
--- Renamed from the previous "gradcon-files" bucket. This migration only
--- CREATES the new bucket; it does not move objects. A project that was
--- already storing files under the old bucket needs those objects copied
--- across (Supabase dashboard, or the Storage API) — unlike the localStorage
--- keys, which src/lib/legacyKeys.js carries over automatically.
-
 insert into storage.buckets (id, name, public)
 values ('boma-files', 'boma-files', true)
 on conflict (id) do nothing;

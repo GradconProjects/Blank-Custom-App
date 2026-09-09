@@ -114,19 +114,19 @@ r = resolveTrial({ ...blank, sessions_used: 1, current_started_at: new Date(now 
 ok("an expired session banks a full hour and rolls into session 2",
   r.next.sessions_used === 2 && r.next.ms_used === HOUR && r.view.state === "active");
 
-r = resolveTrial({ ...blank, sessions_used: 4, ms_used: 4 * HOUR }, now);
-ok("session 5 is allowed and capped to the last hour",
-  r.view.state === "active" && r.view.sessionsUsed === 5 && Math.abs(r.view.msLeftSession - HOUR) < 50);
+r = resolveTrial({ ...blank, sessions_used: 2, ms_used: 2 * HOUR }, now);
+ok("the 3rd and last session is allowed, a full hour long",
+  r.view.state === "active" && r.view.sessionsUsed === 3 && Math.abs(r.view.msLeftSession - HOUR) < 50);
 
-r = resolveTrial({ ...blank, sessions_used: 5, ms_used: 5 * HOUR }, now);
+r = resolveTrial({ ...blank, sessions_used: 3, ms_used: 3 * HOUR }, now);
 ok("a spent trial is locked", r.view.state === "locked" && r.view.msLeftTotal === 0);
 
-r = resolveTrial({ ...blank, sessions_used: 2, ms_used: 5 * HOUR }, now);
-ok("five hours locks even with sessions left", r.view.state === "locked");
+r = resolveTrial({ ...blank, sessions_used: 2, ms_used: 3 * HOUR }, now);
+ok("three hours locks even with sessions left", r.view.state === "locked");
 
-r = resolveTrial({ ...blank, sessions_used: 3, ms_used: 4.5 * HOUR }, now);
-ok("the final session is trimmed to what's left of the five hours",
-  Math.abs(r.view.msLeftSession - 0.5 * HOUR) < 50);
+r = resolveTrial({ ...blank, sessions_used: 2, ms_used: 2.7 * HOUR }, now);
+ok("the final session is trimmed to what's left of the three hours",
+  Math.abs(r.view.msLeftSession - 0.3 * HOUR) < 50);
 
 // ---- handler / identity checks -------------------------------------------
 let a = await call();
@@ -152,7 +152,7 @@ for (let i = 0; i < 5; i++) minted.push(await call({ ip: "198.51.100.9" }));
 ok(`one network mints at most ${3} trials, then inherits`, rows.size === 3);
 
 // exhaust the inherited one and prove a "fresh" visitor from that IP is locked
-for (const row of rows.values()) { row.sessions_used = 5; row.ms_used = 5 * HOUR;
+for (const row of rows.values()) { row.sessions_used = 5; row.ms_used = 3 * HOUR;
   row.current_started_at = null; row.current_expires_at = null; }
 let d = await call({ ip: "198.51.100.9" });
 ok("clearing cookies on a capped network inherits the spent trial, stays locked",
